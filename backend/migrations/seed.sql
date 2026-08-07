@@ -61,7 +61,8 @@ INSERT INTO platform_subscription (billing_model, rate_per_pax)
 -- Users — password_hash below is bcrypt('password123')
 INSERT INTO users (email, password_hash, full_name, role) VALUES
   ('admin@lounge.example', '$2a$10$MC2ma1pNKLmMoyj7bSMAG.gzqTK7g9DLH1k1cqm2MtP8ek9ARtN8a', 'Lounge Admin', 'lounge_admin'),
-  ('staff@lounge.example', '$2a$10$MC2ma1pNKLmMoyj7bSMAG.gzqTK7g9DLH1k1cqm2MtP8ek9ARtN8a', 'Front Desk Staff', 'lounge_staff')
+  ('staff@lounge.example', '$2a$10$MC2ma1pNKLmMoyj7bSMAG.gzqTK7g9DLH1k1cqm2MtP8ek9ARtN8a', 'Front Desk Staff', 'lounge_staff'),
+  ('cashier@lounge.example', '$2a$10$MC2ma1pNKLmMoyj7bSMAG.gzqTK7g9DLH1k1cqm2MtP8ek9ARtN8a', 'Lounge Cashier', 'cashier')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO users (email, password_hash, full_name, role, tenant_id) VALUES
@@ -92,3 +93,9 @@ SELECT * FROM (VALUES
   ('Toiletries (VIP amenity kits)', 'supplies', 'pcs', 50, 20, 1.50)
 ) AS v(name, category, unit, current_stock, reorder_level, unit_cost)
 WHERE NOT EXISTS (SELECT 1 FROM inventory_items WHERE inventory_items.name = v.name);
+
+-- Sample payment: a partial payment already received from Acme Mining Corp, so the statement
+-- of account demo has something real to show (an opening/closing balance that isn't zero).
+INSERT INTO payments (payer_type, payer_id, amount, payment_date, payment_method, reference_number, notes)
+  SELECT 'corporate_account', '22222222-2222-2222-2222-222222222222', 100.00, CURRENT_DATE, 'bank_transfer', 'DEMO-PAY-001', 'Sample payment for demo purposes'
+  WHERE NOT EXISTS (SELECT 1 FROM payments WHERE reference_number = 'DEMO-PAY-001');

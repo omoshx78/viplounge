@@ -49,6 +49,26 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   the whole Node process, not just that request), and the Postgres connection pool had no error
   listener (same failure mode for a dropped idle connection). Both are now handled, converting
   what used to be a total outage into a normal `500` response for the one request that failed.
+- Every printable list — the passenger list ("All passengers"), stock list, stock movement
+  history, staff/partner login list, and travel agent/corporate client list — has a Print button
+  that opens a clean, formatted document in a new tab (browser print-to-PDF covers the "download
+  PDF" case from the same button). Verified passengers also get a per-row printable receipt, and
+  filtering the passenger list to a single corporate account or travel agent unlocks a
+  "Generate invoice" button that totals the filtered visits into a formatted invoice.
+- Dashboard overview metric cards highlight on hover and are clickable — "Awaiting
+  verification" and "Items below reorder level" jump straight to the verification queue /
+  inventory page; every other metric jumps to the filtered passenger list (or scrolls to it, on
+  the single-page agent/corporate dashboards).
+- **Cashier role and statements of account.** Corporate accounts and travel agents are billed
+  and pay later — a new `cashier` role (plus lounge admin) can now post an actual payment
+  received against either, on the new "Cashier" page. A statement of account for any period is
+  computed as opening balance (all charges minus all payments before the period) + charges in
+  the period − payments in the period = closing balance, with a full line-item breakdown and
+  print/PDF output. Corporate accounts and travel agents can generate and print their own
+  statement from their own dashboard; lounge admin/cashier can generate one for any account.
+  Fixed a real pre-existing bug along the way: the travel agent dashboard's own "my corporate
+  clients" dropdown was silently failing (it called an admin-only endpoint a travel agent never
+  had access to) — replaced with a proper RLS-scoped endpoint that actually works for that role.
 - Staff verification queue (tablet-friendly), approve/reject, billing calculated on approval
 - Multi-tenant data isolation via Postgres Row-Level Security — not just app-layer filtering
 - Rate cards: editable, versioned (old visits keep historical rates), scoped globally / per travel
@@ -102,6 +122,7 @@ demo accounts:
 |---|---|---|
 | Lounge admin | admin@lounge.example | password123 |
 | Lounge staff | staff@lounge.example | password123 |
+| Cashier | cashier@lounge.example | password123 |
 | Travel agent | agent@skylinetravel.example | password123 |
 | Corporate admin | finance@acmemining.example | password123 |
 

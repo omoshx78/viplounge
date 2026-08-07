@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, getCurrentUser } from '../api/client';
+import { api, getCurrentUser, openPrintableDocument } from '../api/client';
+
+const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
 
 const CATEGORY_LABELS = {
   food: 'Food',
@@ -8,6 +10,52 @@ const CATEGORY_LABELS = {
   supplies: 'VIP supplies',
 };
 const CATEGORY_ORDER = ['food', 'non_alcoholic', 'alcoholic', 'supplies'];
+
+function printStockList(items) {
+  const rowsHtml = items.map(item => `
+    <tr>
+      <td>${CATEGORY_LABELS[item.category]}</td>
+      <td>${item.name}</td>
+      <td>${Number(item.current_stock)} ${item.unit}</td>
+      <td>${Number(item.reorder_level)} ${item.unit}</td>
+      <td>${Number(item.current_stock) <= 0 ? 'Out of stock' : item.low_stock ? 'Low stock' : 'OK'}</td>
+    </tr>
+  `).join('');
+  const html = `
+    <div class="doc-header">
+      <div><div class="eyebrow">Stock list</div><h1>${LOUNGE_NAME}</h1></div>
+      <div class="doc-meta">Generated ${new Date().toLocaleString()}<br />${items.length} items</div>
+    </div>
+    <table>
+      <thead><tr><th>Category</th><th>Item</th><th>Current stock</th><th>Reorder level</th><th>Status</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+  openPrintableDocument('Stock list', html);
+}
+
+function printMovements(item, transactions) {
+  const rowsHtml = transactions.map(t => `
+    <tr>
+      <td>${new Date(t.created_at).toLocaleString()}</td>
+      <td>${t.reason}</td>
+      <td>${Number(t.change_amount) > 0 ? '+' : ''}${Number(t.change_amount)} ${item.unit}</td>
+      <td>${t.created_by_name || '—'}</td>
+      <td>${t.notes || '—'}</td>
+    </tr>
+  `).join('');
+  const html = `
+    <div class="doc-header">
+      <div><div class="eyebrow">Stock movements</div><h1>${item.name}</h1></div>
+      <div class="doc-meta">${LOUNGE_NAME}<br />Generated ${new Date().toLocaleString()}</div>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Reason</th><th>Amount</th><th>By</th><th>Notes</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+  openPrintableDocument(`Movements — ${item.name}`, html);
+}
 
 function AddItemForm({ onCreated, onCancel }) {
   const [form, setForm] = useState({ name: '', category: 'food', unit: 'pcs', current_stock: '', reorder_level: '', unit_cost: '' });
@@ -34,7 +82,7 @@ function AddItemForm({ onCreated, onCancel }) {
   }
 
   return (
-    <form onSubmit={submit} className="card" style={{ marginBottom: 12 }}>
+    <form onSubmit={submit} className="card no-print" style={{ marginBottom: 12 }}>
       <label>Item name</label>
       <input required value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} />
       <label>Category</label>
@@ -152,7 +200,10 @@ function ItemDetail({ item, onAdjusted }) {
       </div>
 
       <div className="card">
-        <h3>Recent movements</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Recent movements</h3>
+          <button className="secondary no-print" style={{ padding: '5px 12px', fontSize: 12 }} onClick={() => printMovements(item, transactions)}>Print</button>
+        </div>
         <table>
           <thead><tr><th>Date</th><th>Reason</th><th>Amount</th><th>By</th><th>Notes</th></tr></thead>
           <tbody>
@@ -205,6 +256,10 @@ export default function Inventory() {
     <div className="app-shell">
       <h1>Inventory</h1>
       <p style={{ color: 'var(--text-muted)' }}>Stock levels for food, drinks, and VIP supplies. Items below their reorder level are flagged automatically.</p>
+
+      <div className="toolbar no-print" style={{ marginTop: -8 }}>
+        <button className="secondary" onClick={() => printStockList(items)}>Print stock list</button>
+      </div>
 
       {loadError && (
         <p style={{ color: 'var(--danger)' }}>Couldn't load inventory: {loadError} <button className="secondary" onClick={load}>Retry</button></p>

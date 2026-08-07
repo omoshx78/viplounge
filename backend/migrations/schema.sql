@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('lounge_admin','lounge_staff','travel_agent','corporate_admin')),
+  role TEXT NOT NULL CHECK (role IN ('lounge_admin','lounge_staff','travel_agent','corporate_admin','cashier')),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE, -- set when role = travel_agent
   corporate_account_id UUID REFERENCES corporate_accounts(id) ON DELETE CASCADE, -- set when role = corporate_admin
   active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -109,6 +109,27 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_transactions_item ON inventory_transactions(item_id, created_at);
+
+-- ---------- Payments (money actually received against corporate/agent billing) ----------
+-- Corporate accounts and travel agents are billed and pay LATER — this table is where the
+-- cashier records that a payment actually arrived. It's kept entirely separate from the
+-- passenger-facing `visits.client_charge` figures: visits create the debt, payments reduce it.
+-- A statement of account for any payer is just: charges before period (from visits) minus
+-- payments before period (from here) = opening balance, then the same math for line items
+-- within the period = closing balance. See routes/payments.js for that calculation.
+CREATE TABLE IF NOT EXISTS payments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  payer_type TEXT NOT NULL CHECK (payer_type IN ('corporate_account', 'tenant')),
+  payer_id UUID NOT NULL, -- references corporate_accounts.id or tenants.id depending on payer_type
+  amount NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+  payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('bank_transfer', 'cash', 'cheque', 'mobile_money', 'other')),
+  reference_number TEXT,
+  notes TEXT,
+  posted_by UUID REFERENCES users(id), -- the cashier (or admin) who recorded it
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_payer ON payments(payer_type, payer_id, payment_date);
 
 -- ---------- Password reset tokens ----------
 -- Supports self-service password changes and admin-initiated reset links. The token itself is
@@ -206,6 +227,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE corporate_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 
 -- By default, Postgres RLS does NOT apply to a table's owner — and the database user this app
 -- connects as IS the owner, since it's the same user that ran this migration. Without FORCE,
@@ -214,6 +236,7 @@ ALTER TABLE corporate_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE visits FORCE ROW LEVEL SECURITY;
 ALTER TABLE invoices FORCE ROW LEVEL SECURITY;
 ALTER TABLE corporate_accounts FORCE ROW LEVEL SECURITY;
+ALTER TABLE payments FORCE ROW LEVEL SECURITY;
 
 -- App sets these session variables per request based on the JWT (see middleware/tenantScope.js)
 -- app.role: 'lounge_admin' | 'lounge_staff' | 'travel_agent' | 'corporate_admin'
@@ -266,7 +289,7 @@ CREATE POLICY invoices_corporate_scoped ON invoices
 
 DROP POLICY IF EXISTS corp_accounts_lounge_full ON corporate_accounts;
 CREATE POLICY corp_accounts_lounge_full ON corporate_accounts
-  USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff'));
+  USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff','cashier'));
 
 DROP POLICY IF EXISTS corp_accounts_tenant_scoped ON corporate_accounts;
 CREATE POLICY corp_accounts_tenant_scoped ON corporate_accounts
@@ -289,3 +312,34 @@ CREATE POLICY corp_accounts_public_active_read ON corporate_accounts
 -- NOTE: cash/individual visits (corporate_account_id IS NULL, tenant_id IS NULL) never match
 -- the tenant_scoped or corporate_scoped policies above, so they are structurally invisible
 -- to every agent/corporate login and visible only to lounge_admin / lounge_staff.
+
+-- ---------- Payments policies ----------
+-- lounge_admin/lounge_staff/cashier see and post everything (route-level checks in
+-- routes/payments.js further restrict *posting* to cashier + lounge_admin only — this policy
+-- is the DB-layer backstop, not the primary gate).
+DROP POLICY IF EXISTS payments_lounge_full ON payments;
+CREATE POLICY payments_lounge_full ON payments
+  USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff','cashier'));
+
+-- A travel agent sees payments made directly by their own tenant, AND payments made by any
+-- corporate account that belongs to them — matching how a statement rolls up for an agent
+-- managing several clients.
+DROP POLICY IF EXISTS payments_tenant_scoped ON payments;
+CREATE POLICY payments_tenant_scoped ON payments
+  USING (
+    current_setting('app.role', true) = 'travel_agent'
+    AND (
+      (payer_type = 'tenant' AND payer_id = NULLIF(current_setting('app.tenant_id', true), '')::UUID)
+      OR (payer_type = 'corporate_account' AND payer_id IN (
+        SELECT id FROM corporate_accounts WHERE tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::UUID
+      ))
+    )
+  );
+
+DROP POLICY IF EXISTS payments_corporate_scoped ON payments;
+CREATE POLICY payments_corporate_scoped ON payments
+  USING (
+    current_setting('app.role', true) = 'corporate_admin'
+    AND payer_type = 'corporate_account'
+    AND payer_id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID
+  );

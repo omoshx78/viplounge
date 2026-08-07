@@ -1,5 +1,68 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, downloadCsv } from '../api/client';
+import { api, downloadCsv, openPrintableDocument } from '../api/client';
+
+const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
+
+function printReceipt(visit) {
+  const html = `
+    <div class="doc-header">
+      <div>
+        <div class="eyebrow">Receipt</div>
+        <h1>${LOUNGE_NAME}</h1>
+      </div>
+      <div class="doc-meta">
+        Visit ID: ${visit.id}<br />
+        ${new Date(visit.visit_datetime).toLocaleString()}
+      </div>
+    </div>
+    <table>
+      <tr><th>Passenger</th><td>${visit.full_name}</td></tr>
+      <tr><th>Passport</th><td>${visit.passport_number}</td></tr>
+      <tr><th>Flight</th><td>${visit.flight_number} (${visit.direction})</td></tr>
+      <tr><th>Sponsor</th><td>${visit.corporate_account_name || 'Individual'}</td></tr>
+      <tr><th>Payment method</th><td>${visit.payment_type}</td></tr>
+    </table>
+    <table>
+      <tr class="total-row"><td>Amount charged</td><td>$${Number(visit.client_charge).toFixed(2)}</td></tr>
+    </table>
+  `;
+  openPrintableDocument(`Receipt — ${visit.full_name}`, html);
+}
+
+function printInvoice(rows, scopeLabel, hasBreakdown) {
+  const total = rows.reduce((sum, r) => sum + Number(r.client_charge), 0);
+  const rowsHtml = rows.map(r => `
+    <tr>
+      <td>${new Date(r.visit_datetime).toLocaleDateString()}</td>
+      <td>${r.full_name}</td>
+      <td>${r.flight_number}</td>
+      <td>${r.department || '—'}</td>
+      <td>$${Number(r.client_charge).toFixed(2)}</td>
+    </tr>
+  `).join('');
+  const html = `
+    <div class="doc-header">
+      <div>
+        <div class="eyebrow">Invoice</div>
+        <h1>${LOUNGE_NAME}</h1>
+      </div>
+      <div class="doc-meta">
+        Billed to: ${scopeLabel}<br />
+        Generated ${new Date().toLocaleDateString()}<br />
+        ${rows.length} visit${rows.length === 1 ? '' : 's'}
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Passenger</th><th>Flight</th><th>Department</th><th>Amount</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <table>
+      <tr class="total-row"><td>Total due</td><td>$${total.toFixed(2)}</td></tr>
+    </table>
+    ${hasBreakdown ? '<p style="color:#6b6558;font-size:12px;">Internal copy — includes cost/markup breakdown not shown to the billed party.</p>' : ''}
+  `;
+  openPrintableDocument(`Invoice — ${scopeLabel}`, html);
+}
 
 // A visits list with type-ahead search, sortable columns, filters, and download/print —
 // used across the corporate, travel agent, and lounge admin dashboards. Each dashboard
@@ -14,6 +77,7 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
   const [sort, setSort] = useState('date');
   const [order, setOrder] = useState('desc');
   const [direction, setDirection] = useState('');
+  const [paymentType, setPaymentType] = useState('');
   const [tenantId, setTenantId] = useState('');
   const [corporateAccountId, setCorporateAccountId] = useState('');
   const [from, setFrom] = useState('');
@@ -26,6 +90,7 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
       const data = await api.listVisits({
         ...fixedFilters,
         search, sort, order, direction,
+        payment_type: paymentType,
         tenant_id: tenantId, corporate_account_id: corporateAccountId,
         from, to,
       });
@@ -35,7 +100,7 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
     } finally {
       setLoading(false);
     }
-  }, [fixedFilters, search, sort, order, direction, tenantId, corporateAccountId, from, to]);
+  }, [fixedFilters, search, sort, order, direction, paymentType, tenantId, corporateAccountId, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -53,12 +118,13 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
     else { setSort(col); setOrder('asc'); }
   }
 
+  const hasBreakdown = rows.length > 0 && rows[0].lounge_cost !== null && rows[0].lounge_cost !== undefined;
+
   function handleExport() {
     // lounge_cost/agent_markup come back as null from the API for a corporate_admin viewer
     // (enforced server-side, not just hidden here) — so this conditionally includes those
     // columns only when the data actually contains them.
-    const hasBreakdown = rows.length > 0 && rows[0].lounge_cost !== null && rows[0].lounge_cost !== undefined;
-    downloadCsv(`lounge-visits-${new Date().toISOString().slice(0, 10)}.csv`, rows.map(r => ({
+    downloadCsv(`lounge-passengers-${new Date().toISOString().slice(0, 10)}.csv`, rows.map(r => ({
       Name: r.full_name, Passport: r.passport_number, Direction: r.direction, Flight: r.flight_number,
       Date: new Date(r.visit_datetime).toLocaleString(), Status: r.status,
       'Corporate account': r.corporate_account_name || '', 'Travel agent': r.tenant_name || '',
@@ -68,6 +134,14 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
       'Client charge': r.client_charge,
     })));
   }
+
+  // Invoice generation only makes sense once the list is scoped to exactly one payer — either
+  // a single corporate account or a single travel agent — otherwise "the total" is meaningless.
+  const invoiceScopeLabel = corporateAccountId
+    ? corporateOptions.find(c => c.id === corporateAccountId)?.name
+    : tenantId
+      ? tenantOptions.find(t => t.id === tenantId)?.name
+      : null;
 
   return (
     <div>
@@ -93,6 +167,12 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
           <option value="arrival">Arrival</option>
           <option value="departure">Departure</option>
         </select>
+        <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+          <option value="">All payment types</option>
+          <option value="cash">Cash</option>
+          <option value="card">Card</option>
+          <option value="corporate">Corporate</option>
+        </select>
         {showTenantFilter && (
           <select value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
             <option value="">All travel agents</option>
@@ -108,7 +188,10 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         <button className="secondary" onClick={handleExport}>Download CSV</button>
-        <button className="secondary" onClick={() => window.print()}>Print</button>
+        <button className="secondary" onClick={() => window.print()}>Print list</button>
+        {invoiceScopeLabel && rows.length > 0 && (
+          <button onClick={() => printInvoice(rows, invoiceScopeLabel, hasBreakdown)}>Generate invoice</button>
+        )}
       </div>
 
       {loading ? <p>Loading...</p> : loadError ? (
@@ -128,6 +211,7 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
               <th>Corporate account</th>
               <th>Status</th>
               <th onClick={() => toggleSort('amount')}>Charge {sort === 'amount' && (order === 'asc' ? '↑' : '↓')}</th>
+              <th className="no-print">Receipt</th>
             </tr>
           </thead>
           <tbody>
@@ -146,9 +230,14 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
                   </span>
                 </td>
                 <td>${Number(r.client_charge).toFixed(2)}</td>
+                <td className="no-print">
+                  {r.status === 'verified' && (
+                    <button className="secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => printReceipt(r)}>Print</button>
+                  )}
+                </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={9}>No visits match these filters.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={10}>No passengers match these filters.</td></tr>}
           </tbody>
         </table>
       )}

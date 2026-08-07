@@ -15,6 +15,7 @@ import staffRoutes from './routes/staff.js';
 import visitsRoutes from './routes/visits.js';
 import adminRoutes from './routes/admin.js';
 import inventoryRoutes from './routes/inventory.js';
+import paymentsRoutes from './routes/payments.js';
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/visits', visitsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

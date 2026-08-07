@@ -5,14 +5,18 @@ import { pool, queryScoped } from '../db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
-router.use(authenticate, requireRole('lounge_admin'));
+// Base gate allows cashier through too, since they need to read tenants/corporate-accounts to
+// pick a payer when posting a payment or generating a statement. Every other route below is
+// explicitly re-locked to lounge_admin only via a second requireRole call.
+router.use(authenticate, requireRole('lounge_admin', 'cashier'));
 
 // ---------- Tenants (travel agents) ----------
+// GET is shared with cashier (see base gate above); POST (creating a new agent) stays admin-only.
 router.get('/tenants', async (_req, res) => {
   const { rows } = await pool.query('SELECT * FROM tenants ORDER BY name');
   res.json(rows);
 });
-router.post('/tenants', async (req, res) => {
+router.post('/tenants', requireRole('lounge_admin'), async (req, res) => {
   const { name, contact_email, contact_phone } = req.body;
   const { rows } = await pool.query(
     'INSERT INTO tenants (name, contact_email, contact_phone) VALUES ($1,$2,$3) RETURNING *',
@@ -24,7 +28,9 @@ router.post('/tenants', async (req, res) => {
 // ---------- Corporate accounts ----------
 // Uses queryScoped, not a plain pool query — corporate_accounts has RLS forced even for the
 // owning DB user; the corp_accounts_lounge_full policy grants full access once the session's
-// app.role is set to lounge_admin (which this whole router requires anyway).
+// app.role is set to lounge_admin or lounge_staff. Cashier isn't in that policy, but doesn't
+// need row-level scoping here anyway — GET is shared via the base gate for the payer picker,
+// while POST (creating a new corporate account) stays admin-only.
 router.get('/corporate-accounts', async (req, res) => {
   const { rows } = await queryScoped(
     req.user,
@@ -33,7 +39,7 @@ router.get('/corporate-accounts', async (req, res) => {
   );
   res.json(rows);
 });
-router.post('/corporate-accounts', async (req, res) => {
+router.post('/corporate-accounts', requireRole('lounge_admin'), async (req, res) => {
   const { tenant_id, name, billing_contact_name, billing_contact_email, report_cadence } = req.body;
   const { rows } = await queryScoped(
     req.user,
@@ -48,7 +54,7 @@ router.post('/corporate-accounts', async (req, res) => {
 // Rates are set and edited exclusively by lounge admins per agreed contracts.
 // Editing a rate never mutates history: this always INSERTs a new row and closes out
 // the previous one's effective_to, so old visits keep the values that applied at the time.
-router.get('/rate-cards', async (_req, res) => {
+router.get('/rate-cards', requireRole('lounge_admin'), async (_req, res) => {
   const { rows } = await pool.query(
     `SELECT rc.*,
             CASE rc.scope_type
@@ -65,7 +71,7 @@ router.get('/rate-cards', async (_req, res) => {
   res.json(rows);
 });
 
-router.post('/rate-cards', async (req, res) => {
+router.post('/rate-cards', requireRole('lounge_admin'), async (req, res) => {
   const { scope_type, scope_id, lounge_rate, markup_type, markup_value } = req.body;
   if (!['global', 'tenant', 'corporate_account'].includes(scope_type)) {
     return res.status(400).json({ error: 'Invalid scope_type' });
@@ -96,7 +102,7 @@ router.post('/rate-cards', async (req, res) => {
 
 // ---------- Platform subscription (amount the lounge owes its software provider) ----------
 // Entirely separate from passenger/corporate billing — visible to lounge_admin only.
-router.get('/platform-subscription', async (_req, res) => {
+router.get('/platform-subscription', requireRole('lounge_admin'), async (_req, res) => {
   const current = await pool.query(
     `SELECT * FROM platform_subscription WHERE effective_to IS NULL ORDER BY effective_from DESC LIMIT 1`
   );
@@ -114,7 +120,7 @@ router.get('/platform-subscription', async (_req, res) => {
   });
 });
 
-router.post('/platform-subscription', async (req, res) => {
+router.post('/platform-subscription', requireRole('lounge_admin'), async (req, res) => {
   const { billing_model, rate_per_pax, flat_monthly_amount } = req.body;
   const client = await pool.connect();
   try {
@@ -137,7 +143,7 @@ router.post('/platform-subscription', async (req, res) => {
 
 // Generates the platform subscription charge for a completed period, based on verified
 // visit count (per-pax model = every visit, returning pax counted each time) or flat rate.
-router.post('/platform-subscription/generate-charge', async (req, res) => {
+router.post('/platform-subscription/generate-charge', requireRole('lounge_admin'), async (req, res) => {
   const { period_start, period_end } = req.body;
   const plan = await pool.query(
     `SELECT * FROM platform_subscription WHERE effective_to IS NULL ORDER BY effective_from DESC LIMIT 1`
@@ -171,7 +177,7 @@ router.post('/platform-subscription/generate-charge', async (req, res) => {
 // ---------- Users (logins for staff, agents, and corporate admins) ----------
 // Only lounge_admin can create logins — this is how a travel agent or corporate account
 // actually gets access to their own scoped dashboard after being set up above.
-router.get('/users', async (_req, res) => {
+router.get('/users', requireRole('lounge_admin'), async (_req, res) => {
   const { rows } = await pool.query(
     `SELECT u.id, u.email, u.full_name, u.role, u.active, u.created_at,
             t.name AS tenant_name, ca.name AS corporate_account_name
@@ -183,12 +189,12 @@ router.get('/users', async (_req, res) => {
   res.json(rows);
 });
 
-router.post('/users', async (req, res) => {
+router.post('/users', requireRole('lounge_admin'), async (req, res) => {
   const { email, password, full_name, role, tenant_id, corporate_account_id } = req.body;
   if (!email || !password || !full_name || !role) {
     return res.status(400).json({ error: 'email, password, full_name and role are required' });
   }
-  if (!['lounge_admin', 'lounge_staff', 'travel_agent', 'corporate_admin'].includes(role)) {
+  if (!['lounge_admin', 'lounge_staff', 'travel_agent', 'corporate_admin', 'cashier'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
   if (role === 'travel_agent' && !tenant_id) {
@@ -220,7 +226,7 @@ router.post('/users', async (req, res) => {
 // The admin shares this link manually (email/WhatsApp/etc.) — there's no automatic email
 // delivery in this scaffold. The admin never learns the new password the user sets when they
 // follow the link; only the user chooses it. Link expires after 24 hours or first use.
-router.post('/users/:id/generate-reset-link', async (req, res) => {
+router.post('/users/:id/generate-reset-link', requireRole('lounge_admin'), async (req, res) => {
   const { rows: userRows } = await pool.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
   if (!userRows[0]) return res.status(404).json({ error: 'User not found' });
 

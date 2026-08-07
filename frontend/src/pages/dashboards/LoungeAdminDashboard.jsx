@@ -1,7 +1,26 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { useNavigate } from 'react-router-dom';
+import { api, openPrintableDocument } from '../../api/client';
 import SummaryCards from '../../components/SummaryCards';
 import VisitsTable from '../../components/VisitsTable';
+import StatementView from '../../components/StatementView';
+
+const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
+
+function printList(title, headers, rows) {
+  const rowsHtml = rows.map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+  const html = `
+    <div class="doc-header">
+      <div><div class="eyebrow">${title}</div><h1>${LOUNGE_NAME}</h1></div>
+      <div class="doc-meta">Generated ${new Date().toLocaleString()}<br />${rows.length} record${rows.length === 1 ? '' : 's'}</div>
+    </div>
+    <table>
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+  openPrintableDocument(title, html);
+}
 
 function PlatformSubscriptionPanel() {
   const [data, setData] = useState(null);
@@ -52,7 +71,7 @@ function PlatformSubscriptionPanel() {
           Current plan: <strong>{data.current_plan.billing_model === 'per_pax' ? `$${data.current_plan.rate_per_pax} per verified visit` : `$${data.current_plan.flat_monthly_amount} flat / month`}</strong>
         </p>
       )}
-      <form onSubmit={save} className="grid grid-3" style={{ alignItems: 'end' }}>
+      <form onSubmit={save} className="grid grid-3 no-print" style={{ alignItems: 'end' }}>
         <div>
           <label>Billing model</label>
           <select value={form.billing_model} onChange={(e) => setForm(f => ({ ...f, billing_model: e.target.value }))}>
@@ -136,7 +155,7 @@ function RateCardsPanel() {
         </tbody>
       </table>
 
-      <form onSubmit={save} className="grid grid-4" style={{ alignItems: 'end' }}>
+      <form onSubmit={save} className="grid grid-4 no-print" style={{ alignItems: 'end' }}>
         <div>
           <label>Scope</label>
           <select value={form.scope_type} onChange={(e) => setForm(f => ({ ...f, scope_type: e.target.value, scope_id: '' }))}>
@@ -233,7 +252,13 @@ function TenantsAndCorporatePanel({ onChange }) {
 
       <div className="grid grid-2">
         <div>
-          <h3>Existing travel agents</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Existing travel agents</h3>
+            <button className="secondary no-print" style={{ padding: '4px 10px', fontSize: 12 }}
+              onClick={() => printList('Travel agents', ['Name', 'Contact'], tenants.map(t => [t.name, t.contact_email || '—']))}>
+              Print
+            </button>
+          </div>
           <table style={{ marginBottom: 16 }}>
             <thead><tr><th>Name</th><th>Contact</th></tr></thead>
             <tbody>
@@ -241,7 +266,7 @@ function TenantsAndCorporatePanel({ onChange }) {
               {tenants.length === 0 && <tr><td colSpan={2}>None yet.</td></tr>}
             </tbody>
           </table>
-          <form onSubmit={saveTenant}>
+          <form onSubmit={saveTenant} className="no-print">
             <label>New travel agent name</label>
             <input required value={tenantForm.name} onChange={(e) => setTenantForm(f => ({ ...f, name: e.target.value }))} />
             <label>Contact email</label>
@@ -253,7 +278,13 @@ function TenantsAndCorporatePanel({ onChange }) {
         </div>
 
         <div>
-          <h3>Existing corporate accounts</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Existing corporate accounts</h3>
+            <button className="secondary no-print" style={{ padding: '4px 10px', fontSize: 12 }}
+              onClick={() => printList('Travel agents & corporate clients', ['Name', 'Travel agent'], corporateAccounts.map(c => [c.name, c.tenant_name || 'Direct (no agent)']))}>
+              Print
+            </button>
+          </div>
           <table style={{ marginBottom: 16 }}>
             <thead><tr><th>Name</th><th>Travel agent</th></tr></thead>
             <tbody>
@@ -261,7 +292,7 @@ function TenantsAndCorporatePanel({ onChange }) {
               {corporateAccounts.length === 0 && <tr><td colSpan={2}>None yet.</td></tr>}
             </tbody>
           </table>
-          <form onSubmit={saveCorp}>
+          <form onSubmit={saveCorp} className="no-print">
             <label>New corporate account name</label>
             <input required value={corpForm.name} onChange={(e) => setCorpForm(f => ({ ...f, name: e.target.value }))} />
             <label>Travel agent (leave blank if this company books directly)</label>
@@ -354,6 +385,13 @@ function UsersPanel({ tenants, corporateAccounts }) {
         </div>
       )}
 
+      <div className="toolbar no-print" style={{ marginTop: 0 }}>
+        <button className="secondary"
+          onClick={() => printList('Staff & partner logins', ['Name', 'Email', 'Role', 'Linked to'], users.map(u => [u.full_name, u.email, u.role, u.tenant_name || u.corporate_account_name || '—']))}>
+          Print
+        </button>
+      </div>
+
       <table style={{ marginBottom: 16 }}>
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Linked to</th><th></th></tr></thead>
         <tbody>
@@ -372,7 +410,7 @@ function UsersPanel({ tenants, corporateAccounts }) {
         </tbody>
       </table>
 
-      <form onSubmit={save} className="grid grid-3" style={{ alignItems: 'end' }}>
+      <form onSubmit={save} className="grid grid-3 no-print" style={{ alignItems: 'end' }}>
         <div>
           <label>Full name</label>
           <input required value={form.full_name} onChange={(e) => setForm(f => ({ ...f, full_name: e.target.value }))} />
@@ -390,6 +428,7 @@ function UsersPanel({ tenants, corporateAccounts }) {
           <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value, tenant_id: '', corporate_account_id: '' }))}>
             <option value="lounge_staff">Lounge staff</option>
             <option value="lounge_admin">Lounge admin</option>
+            <option value="cashier">Cashier</option>
             <option value="travel_agent">Travel agent</option>
             <option value="corporate_admin">Corporate admin</option>
           </select>
@@ -424,8 +463,9 @@ const SECTIONS = [
   { key: 'companies', label: 'Travel agents & corporates' },
   { key: 'logins', label: 'Logins' },
   { key: 'rate-cards', label: 'Rate cards' },
+  { key: 'statements', label: 'Statements & payments' },
   { key: 'subscription', label: 'Platform subscription' },
-  { key: 'traffic', label: 'All traffic' },
+  { key: 'traffic', label: 'Passengers' },
 ];
 
 export default function LoungeAdminDashboard() {
@@ -434,6 +474,7 @@ export default function LoungeAdminDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [optionsError, setOptionsError] = useState('');
   const [section, setSection] = useState('overview');
+  const navigate = useNavigate();
 
   const loadOptions = () => {
     setOptionsError('');
@@ -443,6 +484,15 @@ export default function LoungeAdminDashboard() {
   };
 
   useEffect(loadOptions, [refreshKey]);
+
+  // Awaiting verification and low stock are separate routes (their own dedicated pages);
+  // every other overview metric is really just "the passenger list, filtered" — so it jumps
+  // to the All passengers section right here rather than leaving the dashboard.
+  function handleOverviewCardClick(key) {
+    if (key === 'pending') navigate('/staff');
+    else if (key === 'lowstock') navigate('/inventory');
+    else setSection('traffic');
+  }
 
   return (
     <div className="app-shell">
@@ -464,14 +514,24 @@ export default function LoungeAdminDashboard() {
         </div>
 
         <div className="sidebar-content">
-          {section === 'overview' && <SummaryCards />}
+          {section === 'overview' && <SummaryCards onCardClick={handleOverviewCardClick} />}
           {section === 'companies' && <TenantsAndCorporatePanel onChange={() => setRefreshKey(k => k + 1)} />}
           {section === 'logins' && <UsersPanel tenants={tenants} corporateAccounts={corporateOptions} />}
           {section === 'rate-cards' && <RateCardsPanel key={refreshKey} />}
+          {section === 'statements' && (
+            <>
+              <div className="card no-print" style={{ marginBottom: 0 }}>
+                <p style={{ margin: 0, fontSize: 13 }}>
+                  To record a payment received, use the <button className="secondary" style={{ padding: '3px 10px', fontSize: 12 }} onClick={() => navigate('/cashier')}>Cashier page</button> — statements here reflect payments posted there.
+                </p>
+              </div>
+              <StatementView tenantOptions={tenants} corporateOptions={corporateOptions} />
+            </>
+          )}
           {section === 'subscription' && <PlatformSubscriptionPanel />}
           {section === 'traffic' && (
             <div className="card">
-              <h2>All traffic</h2>
+              <h2>Passengers</h2>
               {optionsError && (
                 <p style={{ color: 'var(--danger)' }}>
                   Couldn't load filter options: {optionsError} <button className="secondary" onClick={loadOptions}>Retry</button>

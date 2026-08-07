@@ -19,7 +19,7 @@ const SORTABLE_COLUMNS = {
 // passing another agent's tenant_id simply gets zero rows, never a leak.
 router.get('/', async (req, res) => {
   const {
-    search = '', tenant_id, corporate_account_id, direction, status,
+    search = '', tenant_id, corporate_account_id, direction, status, payment_type,
     from, to, sort = 'date', order = 'desc', page = 1, pageSize = 50,
   } = req.query;
 
@@ -36,6 +36,7 @@ router.get('/', async (req, res) => {
   if (corporate_account_id) { conditions.push(`v.corporate_account_id = $${i}`); params.push(corporate_account_id); i++; }
   if (direction) { conditions.push(`v.direction = $${i}`); params.push(direction); i++; }
   if (status) { conditions.push(`v.status = $${i}`); params.push(status); i++; }
+  if (payment_type) { conditions.push(`v.payment_type = $${i}`); params.push(payment_type); i++; }
   if (from) { conditions.push(`v.visit_datetime >= $${i}`); params.push(from); i++; }
   if (to) { conditions.push(`v.visit_datetime <= $${i}`); params.push(to); i++; }
 
@@ -122,6 +123,20 @@ router.get('/summary', async (req, res) => {
     delete summary.total_agent_markup;
   }
   res.json(summary);
+});
+
+// Returns the corporate accounts visible to the current user via RLS — a travel agent gets
+// their own managed clients, a corporate admin gets just their own account, lounge roles get
+// everything. This exists because /api/admin/corporate-accounts is admin/cashier only; agents
+// and corporate accounts need their own way to populate a "which of my clients" dropdown
+// (e.g. for filtering their passenger list or generating a statement).
+router.get('/my-corporate-accounts', async (req, res) => {
+  const { rows } = await queryScoped(
+    req.user,
+    `SELECT ca.*, t.name AS tenant_name FROM corporate_accounts ca
+     LEFT JOIN tenants t ON t.id = ca.tenant_id ORDER BY ca.name`
+  );
+  res.json(rows);
 });
 
 export default router;

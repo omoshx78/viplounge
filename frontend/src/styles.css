@@ -129,6 +129,12 @@ tbody tr:hover { background: rgba(200,161,61,0.05); }
 .stat-card.stat-alert .stat-value { color: var(--danger-strong); }
 .stat-label { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
 
+/* Only the dashboard overview metric cards navigate somewhere — scoped separately so static
+   info cards elsewhere (e.g. Inventory's stock detail) don't look clickable when they aren't. */
+.stat-card-clickable { cursor: pointer; transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s; }
+.stat-card-clickable:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(14,30,56,0.14); border-left-color: var(--gold-dark); }
+.stat-card-clickable.stat-alert:hover { border-left-color: var(--danger-strong); }
+
 nav.topnav {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 24px; background: var(--ink); border-bottom: 3px solid var(--gold);

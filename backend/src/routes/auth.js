@@ -11,7 +11,14 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND active = TRUE', [email]);
+  const { rows } = await pool.query(
+    `SELECT u.*, t.name AS tenant_name, ca.name AS corporate_account_name
+     FROM users u
+     LEFT JOIN tenants t ON t.id = u.tenant_id
+     LEFT JOIN corporate_accounts ca ON ca.id = u.corporate_account_id
+     WHERE u.email = $1 AND u.active = TRUE`,
+    [email]
+  );
   const user = rows[0];
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -25,6 +32,8 @@ router.post('/login', async (req, res) => {
     role: user.role,
     tenant_id: user.tenant_id,
     corporate_account_id: user.corporate_account_id,
+    tenant_name: user.tenant_name,
+    corporate_account_name: user.corporate_account_name,
   };
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '12h' });
   res.json({ token, user: payload });
