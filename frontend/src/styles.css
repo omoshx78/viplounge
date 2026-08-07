@@ -102,11 +102,26 @@ nav.topnav a.active { color: var(--accent); font-weight: 500; }
 .autocomplete-list div { padding: 8px 10px; cursor: pointer; font-size: 13px; }
 .autocomplete-list div:hover { background: var(--bg); }
 
-/* Inventory master-detail layout: item menu on the left, selected item's detail on the right */
-.inventory-layout { display: flex; gap: 20px; align-items: flex-start; }
-.inventory-menu { width: 280px; flex-shrink: 0; }
-.inventory-detail { flex: 1; min-width: 0; }
-@media (max-width: 780px) { .inventory-layout { flex-direction: column; } .inventory-menu { width: 100%; } }
+/* Generic menu-left / detail-right layout, used by the admin dashboard and inventory page */
+.sidebar-layout, .inventory-layout { display: flex; gap: 20px; align-items: flex-start; }
+.sidebar-menu, .inventory-menu { width: 240px; flex-shrink: 0; position: sticky; top: 20px; }
+.sidebar-content, .inventory-detail { flex: 1; min-width: 0; }
+@media (max-width: 780px) {
+  .sidebar-layout, .inventory-layout { flex-direction: column; }
+  .sidebar-menu, .inventory-menu { width: 100%; position: static; }
+}
+
+.sidebar-menu-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; margin-bottom: 2px;
+}
+.sidebar-menu-item:hover { background: var(--bg); }
+.sidebar-menu-item.active { background: var(--accent); color: #fff; }
+.sidebar-menu-item .badge-count {
+  font-size: 11px; background: var(--danger); color: #fff; border-radius: 20px;
+  padding: 1px 7px; min-width: 18px; text-align: center;
+}
+.sidebar-menu-item.active .badge-count { background: rgba(255,255,255,0.3); }
 
 .inventory-category-label {
   font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;

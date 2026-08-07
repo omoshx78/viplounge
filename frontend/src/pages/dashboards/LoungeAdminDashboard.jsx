@@ -419,11 +419,21 @@ function UsersPanel({ tenants, corporateAccounts }) {
   );
 }
 
+const SECTIONS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'companies', label: 'Travel agents & corporates' },
+  { key: 'logins', label: 'Logins' },
+  { key: 'rate-cards', label: 'Rate cards' },
+  { key: 'subscription', label: 'Platform subscription' },
+  { key: 'traffic', label: 'All traffic' },
+];
+
 export default function LoungeAdminDashboard() {
   const [tenants, setTenants] = useState([]);
   const [corporateOptions, setCorporateOptions] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [optionsError, setOptionsError] = useState('');
+  const [section, setSection] = useState('overview');
 
   const loadOptions = () => {
     setOptionsError('');
@@ -437,19 +447,40 @@ export default function LoungeAdminDashboard() {
   return (
     <div className="app-shell">
       <h1>Lounge management dashboard</h1>
-      <SummaryCards />
-      <TenantsAndCorporatePanel onChange={() => setRefreshKey(k => k + 1)} />
-      <UsersPanel tenants={tenants} corporateAccounts={corporateOptions} />
-      <RateCardsPanel key={refreshKey} />
-      <PlatformSubscriptionPanel />
-      <div className="card">
-        <h2>All traffic</h2>
-        {optionsError && (
-          <p style={{ color: 'var(--danger)' }}>
-            Couldn't load filter options: {optionsError} <button className="secondary" onClick={loadOptions}>Retry</button>
-          </p>
-        )}
-        <VisitsTable showTenantFilter showCorporateFilter tenantOptions={tenants} corporateOptions={corporateOptions} />
+
+      <div className="sidebar-layout">
+        <div className="sidebar-menu no-print">
+          <div className="card" style={{ padding: 8 }}>
+            {SECTIONS.map(s => (
+              <div
+                key={s.key}
+                className={`sidebar-menu-item ${section === s.key ? 'active' : ''}`}
+                onClick={() => setSection(s.key)}
+              >
+                {s.label}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="sidebar-content">
+          {section === 'overview' && <SummaryCards />}
+          {section === 'companies' && <TenantsAndCorporatePanel onChange={() => setRefreshKey(k => k + 1)} />}
+          {section === 'logins' && <UsersPanel tenants={tenants} corporateAccounts={corporateOptions} />}
+          {section === 'rate-cards' && <RateCardsPanel key={refreshKey} />}
+          {section === 'subscription' && <PlatformSubscriptionPanel />}
+          {section === 'traffic' && (
+            <div className="card">
+              <h2>All traffic</h2>
+              {optionsError && (
+                <p style={{ color: 'var(--danger)' }}>
+                  Couldn't load filter options: {optionsError} <button className="secondary" onClick={loadOptions}>Retry</button>
+                </p>
+              )}
+              <VisitsTable showTenantFilter showCorporateFilter tenantOptions={tenants} corporateOptions={corporateOptions} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -3,6 +3,15 @@
 -- Safe to run more than once — every insert either uses a fixed ID with ON CONFLICT DO NOTHING,
 -- or is guarded with a WHERE NOT EXISTS check, so re-running this script won't create duplicates
 -- or error out.
+--
+-- This script runs as a raw multi-statement SQL file (via GitHub Actions or locally), not
+-- through the app's normal request path — so it never gets the app.role session variable the
+-- app sets on every request. Since corporate_accounts has RLS FORCEd (even for the owning DB
+-- user), its INSERT below would otherwise be rejected outright. Setting app.role here grants it
+-- the same access the corp_accounts_lounge_full policy gives a real lounge_admin request.
+-- is_local = true scopes this to the current transaction — and because this whole file is sent
+-- as one multi-statement call, everything below shares that same implicit transaction.
+SELECT set_config('app.role', 'lounge_admin', true);
 
 INSERT INTO tenants (id, name, contact_email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'Skyline Travel Agency', 'ops@skylinetravel.example')
