@@ -8,6 +8,7 @@ import { api, downloadCsv } from '../api/client';
 export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showCorporateFilter, tenantOptions = [], corporateOptions = [] }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [sort, setSort] = useState('date');
@@ -20,6 +21,7 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = await api.listVisits({
         ...fixedFilters,
@@ -28,6 +30,8 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
         from, to,
       });
       setRows(data);
+    } catch (err) {
+      setLoadError(err.message || 'Could not load visits');
     } finally {
       setLoading(false);
     }
@@ -107,7 +111,11 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
         <button className="secondary" onClick={() => window.print()}>Print</button>
       </div>
 
-      {loading ? <p>Loading...</p> : (
+      {loading ? <p>Loading...</p> : loadError ? (
+        <p style={{ color: 'var(--danger)' }}>
+          Couldn't load visits: {loadError} <button className="secondary" onClick={load}>Retry</button>
+        </p>
+      ) : (
         <table>
           <thead>
             <tr>

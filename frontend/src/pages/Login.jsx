@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, setSession } from '../api/client';
 
@@ -6,7 +6,16 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [sessionMessage, setSessionMessage] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const msg = sessionStorage.getItem('vip_lounge_session_message');
+    if (msg) {
+      setSessionMessage(msg);
+      sessionStorage.removeItem('vip_lounge_session_message');
+    }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -30,6 +39,9 @@ export default function Login() {
     <div className="app-shell" style={{ maxWidth: 420 }}>
       <div className="card">
         <h1>Sign in</h1>
+        {sessionMessage && (
+          <div className="badge badge-warning" style={{ marginBottom: 14 }}>{sessionMessage}</div>
+        )}
         <form onSubmit={handleSubmit}>
           <label>Email</label>
           <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} />

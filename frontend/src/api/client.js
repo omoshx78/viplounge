@@ -31,6 +31,18 @@ async function request(path, { method = 'GET', body, auth = true, params } = {})
     if (token) headers.Authorization = `Bearer ${token}`;
   }
   const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+
+  // A 401 on an authenticated request means the token is missing/expired/invalid — every panel
+  // in the app would otherwise fail this the same way independently and silently. Handling it
+  // once here means the person gets kicked back to login with a clear reason instead of staring
+  // at dashboards that look "frozen" with no explanation.
+  if (auth && res.status === 401) {
+    clearSession();
+    sessionStorage.setItem('vip_lounge_session_message', 'Your session expired. Please sign in again.');
+    window.location.href = '/login';
+    throw new Error('Session expired');
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;

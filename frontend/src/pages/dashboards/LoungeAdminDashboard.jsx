@@ -5,10 +5,14 @@ import VisitsTable from '../../components/VisitsTable';
 
 function PlatformSubscriptionPanel() {
   const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState({ billing_model: 'per_pax', rate_per_pax: '', flat_monthly_amount: '' });
   const [saving, setSaving] = useState(false);
 
-  const load = () => api.getPlatformSubscription().then(setData);
+  const load = () => {
+    setLoadError('');
+    api.getPlatformSubscription().then(setData).catch((err) => setLoadError(err.message));
+  };
   useEffect(() => { load(); }, []);
 
   async function save(e) {
@@ -32,6 +36,11 @@ function PlatformSubscriptionPanel() {
       <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
         Visible only here. Never shown to travel agents or corporate accounts.
       </p>
+      {loadError && (
+        <p style={{ color: 'var(--danger)' }}>
+          Couldn't load this: {loadError} <button className="secondary" onClick={load}>Retry</button>
+        </p>
+      )}
       {data && (
         <div className="stat-card" style={{ marginBottom: 16, maxWidth: 260 }}>
           <div className="stat-value">${Number(data.total_outstanding).toFixed(2)}</div>
@@ -74,11 +83,13 @@ function RateCardsPanel() {
   const [corporateAccounts, setCorporateAccounts] = useState([]);
   const [form, setForm] = useState({ scope_type: 'global', scope_id: '', lounge_rate: '', markup_type: 'flat', markup_value: '' });
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const load = () => {
-    api.listRateCards().then(setRateCards);
-    api.listTenants().then(setTenants);
-    api.listCorporateAccounts().then(setCorporateAccounts);
+    setLoadError('');
+    Promise.all([api.listRateCards(), api.listTenants(), api.listCorporateAccounts()])
+      .then(([rc, t, c]) => { setRateCards(rc); setTenants(t); setCorporateAccounts(c); })
+      .catch((err) => setLoadError(err.message));
   };
   useEffect(load, []);
 
@@ -107,6 +118,11 @@ function RateCardsPanel() {
       <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
         Managed by the lounge only, per agreed contracts. Editing creates a new versioned rate — past visits keep the rate that applied at the time.
       </p>
+      {loadError && (
+        <p style={{ color: 'var(--danger)' }}>
+          Couldn't load this: {loadError} <button className="secondary" onClick={load}>Retry</button>
+        </p>
+      )}
       <table style={{ marginBottom: 16 }}>
         <thead><tr><th>Scope</th><th>Lounge rate</th><th>Markup</th></tr></thead>
         <tbody>
@@ -166,10 +182,13 @@ function TenantsAndCorporatePanel({ onChange }) {
   const [corpForm, setCorpForm] = useState({ name: '', tenant_id: '', billing_contact_name: '', billing_contact_email: '', report_cadence: 'monthly' });
   const [savingTenant, setSavingTenant] = useState(false);
   const [savingCorp, setSavingCorp] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const load = () => {
-    api.listTenants().then(setTenants);
-    api.listCorporateAccounts().then(setCorporateAccounts);
+    setLoadError('');
+    Promise.all([api.listTenants(), api.listCorporateAccounts()])
+      .then(([t, c]) => { setTenants(t); setCorporateAccounts(c); })
+      .catch((err) => setLoadError(err.message));
   };
   useEffect(load, []);
 
@@ -206,6 +225,11 @@ function TenantsAndCorporatePanel({ onChange }) {
         Add real companies here before going live. New corporate accounts appear immediately in the
         passenger check-in dropdown and in the rate card panel below.
       </p>
+      {loadError && (
+        <p style={{ color: 'var(--danger)' }}>
+          Couldn't load this: {loadError} <button className="secondary" onClick={load}>Retry</button>
+        </p>
+      )}
 
       <div className="grid grid-2">
         <div>
@@ -270,8 +294,12 @@ function UsersPanel({ tenants, corporateAccounts }) {
   const [error, setError] = useState('');
   const [resetLink, setResetLink] = useState(null);
   const [generatingFor, setGeneratingFor] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
-  const load = () => api.listUsers().then(setUsers);
+  const load = () => {
+    setLoadError('');
+    api.listUsers().then(setUsers).catch((err) => setLoadError(err.message));
+  };
   useEffect(load, []);
 
   async function save(e) {
@@ -308,6 +336,11 @@ function UsersPanel({ tenants, corporateAccounts }) {
         "Change password" link in their nav bar — you only need to set the first one, or generate
         a reset link below if they forget it.
       </p>
+      {loadError && (
+        <p style={{ color: 'var(--danger)' }}>
+          Couldn't load this: {loadError} <button className="secondary" onClick={load}>Retry</button>
+        </p>
+      )}
 
       {resetLink && (
         <div className="card" style={{ background: 'var(--bg)', marginBottom: 16 }}>
@@ -390,10 +423,13 @@ export default function LoungeAdminDashboard() {
   const [tenants, setTenants] = useState([]);
   const [corporateOptions, setCorporateOptions] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [optionsError, setOptionsError] = useState('');
 
   const loadOptions = () => {
-    api.listTenants().then(setTenants);
-    api.listCorporateAccounts().then(setCorporateOptions);
+    setOptionsError('');
+    Promise.all([api.listTenants(), api.listCorporateAccounts()])
+      .then(([t, c]) => { setTenants(t); setCorporateOptions(c); })
+      .catch((err) => setOptionsError(err.message));
   };
 
   useEffect(loadOptions, [refreshKey]);
@@ -408,6 +444,11 @@ export default function LoungeAdminDashboard() {
       <PlatformSubscriptionPanel />
       <div className="card">
         <h2>All traffic</h2>
+        {optionsError && (
+          <p style={{ color: 'var(--danger)' }}>
+            Couldn't load filter options: {optionsError} <button className="secondary" onClick={loadOptions}>Retry</button>
+          </p>
+        )}
         <VisitsTable showTenantFilter showCorporateFilter tenantOptions={tenants} corporateOptions={corporateOptions} />
       </div>
     </div>
