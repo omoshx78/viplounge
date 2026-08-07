@@ -14,7 +14,11 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        value: https://your-app.vercel.app
+        sync: false
+        # Set this manually in the Render dashboard (Environment tab) to your real Vercel URL.
+        # sync: false means Render will NEVER overwrite whatever you set there with a value from
+        # this file on future blueprint syncs — this is what broke CORS previously: the
+        # hardcoded placeholder below kept silently winning over the real value after redeploys.
       - key: PORT
         value: 4000
 
