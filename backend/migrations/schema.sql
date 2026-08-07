@@ -3,9 +3,10 @@
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ---------- Tenants (travel agents) ----------
-CREATE TABLE tenants (
+CREATE TABLE IF NOT EXISTS tenants (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   contact_email TEXT,
@@ -16,7 +17,7 @@ CREATE TABLE tenants (
 
 -- ---------- Corporate accounts ----------
 -- tenant_id is nullable: a corporate account with no tenant books directly with the lounge.
-CREATE TABLE corporate_accounts (
+CREATE TABLE IF NOT EXISTS corporate_accounts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
@@ -32,7 +33,7 @@ CREATE TABLE corporate_accounts (
 -- scope_type + scope_id determine who the rate applies to. Most specific match wins:
 -- corporate_account > tenant > global (scope_id NULL, scope_type = 'global').
 -- effective_from/effective_to preserve history — a rate change never rewrites past visits.
-CREATE TABLE rate_cards (
+CREATE TABLE IF NOT EXISTS rate_cards (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   scope_type TEXT NOT NULL CHECK (scope_type IN ('global','tenant','corporate_account')),
   scope_id UUID, -- NULL when scope_type = 'global'
@@ -44,11 +45,11 @@ CREATE TABLE rate_cards (
   created_by UUID, -- references users.id
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_rate_cards_scope ON rate_cards(scope_type, scope_id, effective_from);
+CREATE INDEX IF NOT EXISTS idx_rate_cards_scope ON rate_cards(scope_type, scope_id, effective_from);
 
 -- ---------- Platform subscription (what the lounge owes its software provider) ----------
 -- Entirely separate ledger from passenger/corporate billing. Never shown to agents/corporates.
-CREATE TABLE platform_subscription (
+CREATE TABLE IF NOT EXISTS platform_subscription (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   billing_model TEXT NOT NULL CHECK (billing_model IN ('per_pax','flat_monthly')),
   rate_per_pax NUMERIC(10,2), -- used when billing_model = 'per_pax'
@@ -58,7 +59,7 @@ CREATE TABLE platform_subscription (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE platform_subscription_charges (
+CREATE TABLE IF NOT EXISTS platform_subscription_charges (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   period_start DATE NOT NULL,
   period_end DATE NOT NULL,
@@ -70,7 +71,7 @@ CREATE TABLE platform_subscription_charges (
 );
 
 -- ---------- Users (logins for every role) ----------
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
@@ -83,7 +84,7 @@ CREATE TABLE users (
 );
 
 -- ---------- Passengers ----------
-CREATE TABLE passengers (
+CREATE TABLE IF NOT EXISTS passengers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   passport_number TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
@@ -93,10 +94,10 @@ CREATE TABLE passengers (
   default_corporate_account_id UUID REFERENCES corporate_accounts(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_passengers_name ON passengers USING gin (full_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_passengers_name ON passengers USING gin (full_name gin_trgm_ops);
 
 -- ---------- Visits (the core ledger — one row per lounge entry) ----------
-CREATE TABLE visits (
+CREATE TABLE IF NOT EXISTS visits (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   passenger_id UUID NOT NULL REFERENCES passengers(id),
   corporate_account_id UUID REFERENCES corporate_accounts(id), -- NULL = individual/cash pax
@@ -139,13 +140,13 @@ CREATE TABLE visits (
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_visits_tenant ON visits(tenant_id);
-CREATE INDEX idx_visits_corporate ON visits(corporate_account_id);
-CREATE INDEX idx_visits_datetime ON visits(visit_datetime);
-CREATE INDEX idx_visits_status ON visits(status);
+CREATE INDEX IF NOT EXISTS idx_visits_tenant ON visits(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_visits_corporate ON visits(corporate_account_id);
+CREATE INDEX IF NOT EXISTS idx_visits_datetime ON visits(visit_datetime);
+CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status);
 
 -- ---------- Invoices ----------
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID REFERENCES tenants(id),
   corporate_account_id UUID REFERENCES corporate_accounts(id),
@@ -160,7 +161,6 @@ CREATE TABLE invoices (
 -- ============================================================
 -- Row-Level Security — tenant/corporate isolation enforced at the DB layer
 -- ============================================================
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
@@ -170,33 +170,50 @@ ALTER TABLE corporate_accounts ENABLE ROW LEVEL SECURITY;
 -- app.role: 'lounge_admin' | 'lounge_staff' | 'travel_agent' | 'corporate_admin'
 -- app.tenant_id: uuid or ''
 -- app.corporate_account_id: uuid or ''
+--
+-- Postgres has no "CREATE POLICY IF NOT EXISTS", so each policy below is dropped first if it
+-- already exists — this makes the whole schema safe to run more than once (e.g. re-running
+-- this migration after already applying it once won't error out).
 
+DROP POLICY IF EXISTS visits_lounge_full ON visits;
 CREATE POLICY visits_lounge_full ON visits
   USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff'));
 
+DROP POLICY IF EXISTS visits_tenant_scoped ON visits;
 CREATE POLICY visits_tenant_scoped ON visits
   USING (
     current_setting('app.role', true) = 'travel_agent'
     AND tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::UUID
   );
 
+DROP POLICY IF EXISTS visits_corporate_scoped ON visits;
 CREATE POLICY visits_corporate_scoped ON visits
   USING (
     current_setting('app.role', true) = 'corporate_admin'
     AND corporate_account_id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID
   );
 
+DROP POLICY IF EXISTS invoices_lounge_full ON invoices;
 CREATE POLICY invoices_lounge_full ON invoices
   USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff'));
+
+DROP POLICY IF EXISTS invoices_tenant_scoped ON invoices;
 CREATE POLICY invoices_tenant_scoped ON invoices
   USING (current_setting('app.role', true) = 'travel_agent' AND tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::UUID);
+
+DROP POLICY IF EXISTS invoices_corporate_scoped ON invoices;
 CREATE POLICY invoices_corporate_scoped ON invoices
   USING (current_setting('app.role', true) = 'corporate_admin' AND corporate_account_id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID);
 
+DROP POLICY IF EXISTS corp_accounts_lounge_full ON corporate_accounts;
 CREATE POLICY corp_accounts_lounge_full ON corporate_accounts
   USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff'));
+
+DROP POLICY IF EXISTS corp_accounts_tenant_scoped ON corporate_accounts;
 CREATE POLICY corp_accounts_tenant_scoped ON corporate_accounts
   USING (current_setting('app.role', true) = 'travel_agent' AND tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::UUID);
+
+DROP POLICY IF EXISTS corp_accounts_self_scoped ON corporate_accounts;
 CREATE POLICY corp_accounts_self_scoped ON corporate_accounts
   USING (current_setting('app.role', true) = 'corporate_admin' AND id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID);
 
