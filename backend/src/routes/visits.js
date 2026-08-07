@@ -13,10 +13,34 @@ const SORTABLE_COLUMNS = {
   flight: 'v.flight_number',
 };
 
+// Applies the hardcoded, non-negotiable scope for the current role directly to the query
+// conditions — a travel agent ALWAYS gets AND v.tenant_id = <their own tenant>, a corporate
+// admin ALWAYS gets AND v.corporate_account_id = <their own account>, regardless of what
+// tenant_id/corporate_account_id the client passed in the request. This is enforced here in
+// application code, not left to depend on RLS/session state alone: even if RLS were ever
+// misconfigured, bypassed, or simply wrong, a travel agent's request can only ever produce SQL
+// that is already restricted to their own data before it reaches the database. lounge_admin and
+// lounge_staff get no additional restriction (by design, they see everything).
+function applyRoleScope(user, conditions, params, i) {
+  if (user.role === 'travel_agent') {
+    conditions.push(`v.tenant_id = $${i}`);
+    params.push(user.tenant_id);
+    return i + 1;
+  }
+  if (user.role === 'corporate_admin') {
+    conditions.push(`v.corporate_account_id = $${i}`);
+    params.push(user.corporate_account_id);
+    return i + 1;
+  }
+  return i;
+}
+
 // GET /api/visits?search=&tenant_id=&corporate_account_id=&direction=&from=&to=&sort=date&order=desc&page=1&pageSize=25
-// RLS (via queryScoped) already restricts rows to what this user's role/tenant/corporate is
-// allowed to see, so filters here are additive narrowing within that allowed set — an agent
-// passing another agent's tenant_id simply gets zero rows, never a leak.
+// tenant_id/corporate_account_id from the query string are only ever used as ADDITIONAL
+// narrowing filters within whatever the role scope above already allows (e.g. lounge_admin
+// picking a specific corporate account to look at) — they can never be used to escape it, since
+// applyRoleScope's condition is always present in the query for travel_agent/corporate_admin
+// regardless of what the client requests.
 router.get('/', async (req, res) => {
   const {
     search = '', tenant_id, corporate_account_id, direction, status, payment_type,
@@ -27,11 +51,15 @@ router.get('/', async (req, res) => {
   const params = [];
   let i = 1;
 
+  i = applyRoleScope(req.user, conditions, params, i);
+
   if (search) {
     conditions.push(`(p.full_name ILIKE $${i} OR p.passport_number ILIKE $${i} OR v.staff_consultant_id ILIKE $${i})`);
     params.push(`%${search}%`);
     i++;
   }
+  // A lounge role may narrow by any tenant/corporate; an agent/corporate role narrowing further
+  // within their own already-enforced scope is harmless (it can only ever narrow, not widen).
   if (tenant_id) { conditions.push(`v.tenant_id = $${i}`); params.push(tenant_id); i++; }
   if (corporate_account_id) { conditions.push(`v.corporate_account_id = $${i}`); params.push(corporate_account_id); i++; }
   if (direction) { conditions.push(`v.direction = $${i}`); params.push(direction); i++; }
@@ -81,23 +109,33 @@ router.get('/', async (req, res) => {
 router.get('/search-suggest', async (req, res) => {
   const q = req.query.q || '';
   if (q.length < 2) return res.json([]);
+
+  const conditions = ['(p.full_name ILIKE $1 OR p.passport_number ILIKE $1)'];
+  const params = [`%${q}%`];
+  let i = 2;
+  i = applyRoleScope(req.user, conditions, params, i);
+
   const { rows } = await queryScoped(
     req.user,
     `SELECT DISTINCT p.full_name, p.passport_number
      FROM visits v JOIN passengers p ON p.id = v.passenger_id
-     WHERE p.full_name ILIKE $1 OR p.passport_number ILIKE $1
+     WHERE ${conditions.join(' AND ')}
      LIMIT 8`,
-    [`%${q}%`]
+    params
   );
   res.json(rows);
 });
 
-// Summary numbers for dashboard cards — respects the same RLS scoping.
+// Summary numbers for dashboard cards
 router.get('/summary', async (req, res) => {
   const { from, to } = req.query;
   const conditions = ["status = 'verified'"];
   const params = [];
   let i = 1;
+  // applyRoleScope's SQL uses the "v." alias, but this query has no join/alias — build the
+  // equivalent unaliased condition directly for the two scoped roles.
+  if (req.user.role === 'travel_agent') { conditions.push(`tenant_id = $${i}`); params.push(req.user.tenant_id); i++; }
+  if (req.user.role === 'corporate_admin') { conditions.push(`corporate_account_id = $${i}`); params.push(req.user.corporate_account_id); i++; }
   if (from) { conditions.push(`visit_datetime >= $${i}`); params.push(from); i++; }
   if (to) { conditions.push(`visit_datetime <= $${i}`); params.push(to); i++; }
 
@@ -125,16 +163,24 @@ router.get('/summary', async (req, res) => {
   res.json(summary);
 });
 
-// Returns the corporate accounts visible to the current user via RLS — a travel agent gets
-// their own managed clients, a corporate admin gets just their own account, lounge roles get
-// everything. This exists because /api/admin/corporate-accounts is admin/cashier only; agents
-// and corporate accounts need their own way to populate a "which of my clients" dropdown
-// (e.g. for filtering their passenger list or generating a statement).
+// Returns the corporate accounts visible to the current user — a travel agent gets their own
+// managed clients, a corporate admin gets just their own account, lounge roles get everything.
+// Scoped explicitly here in application code (see applyRoleScope note above), not left to RLS
+// alone. This exists because /api/admin/corporate-accounts is admin/cashier only; agents and
+// corporate accounts need their own way to populate a "which of my clients" dropdown.
 router.get('/my-corporate-accounts', async (req, res) => {
+  const conditions = [];
+  const params = [];
+  let i = 1;
+  if (req.user.role === 'travel_agent') { conditions.push(`ca.tenant_id = $${i}`); params.push(req.user.tenant_id); i++; }
+  if (req.user.role === 'corporate_admin') { conditions.push(`ca.id = $${i}`); params.push(req.user.corporate_account_id); i++; }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
   const { rows } = await queryScoped(
     req.user,
     `SELECT ca.*, t.name AS tenant_name FROM corporate_accounts ca
-     LEFT JOIN tenants t ON t.id = ca.tenant_id ORDER BY ca.name`
+     LEFT JOIN tenants t ON t.id = ca.tenant_id ${whereClause} ORDER BY ca.name`,
+    params
   );
   res.json(rows);
 });

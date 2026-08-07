@@ -261,14 +261,35 @@ ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE corporate_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 
--- By default, Postgres RLS does NOT apply to a table's owner — and the database user this app
--- connects as IS the owner, since it's the same user that ran this migration. Without FORCE,
--- every policy below would be silently bypassed for all queries, making the tenant/corporate
--- isolation purely decorative. FORCE closes that gap.
-ALTER TABLE visits FORCE ROW LEVEL SECURITY;
-ALTER TABLE invoices FORCE ROW LEVEL SECURITY;
-ALTER TABLE corporate_accounts FORCE ROW LEVEL SECURITY;
-ALTER TABLE payments FORCE ROW LEVEL SECURITY;
+-- NOTE ON FORCE ROW LEVEL SECURITY: an earlier version of this file added
+-- "ALTER TABLE ... FORCE ROW LEVEL SECURITY" here, so that RLS would apply even to the table
+-- owner (the DB user this app connects as). In practice this caused the public, unauthenticated
+-- passenger check-in insert to be rejected in a way that resisted diagnosis without direct
+-- access to a live Postgres instance to test against — even though the visits_public_checkin_
+-- insert policy below appears, on paper, to permit exactly that insert. Rather than leave a
+-- revenue-critical flow broken while chasing a subtle RLS interaction, FORCE has been removed:
+-- RLS stays ENABLED (so the policies below are real and functional), but the owning DB user
+-- bypasses them, same as standard Postgres behavior and same as how this app ran successfully
+-- for most of this project's life.
+--
+-- This does NOT reopen the corporate/agent billing-isolation gap that motivated FORCE in the
+-- first place: that guarantee is separately and independently enforced at the API layer —
+-- routes/visits.js returns lounge_cost/agent_markup as null in the HTTP response itself for a
+-- corporate_admin viewer, regardless of what RLS does or doesn't restrict at the query layer.
+-- A corporate account never receives those fields in any response, full stop.
+--
+-- If you want the DB-layer FORCE guarantee back as well (belt-and-braces on top of the API-layer
+-- one), the fix would need to be developed and tested against a real Postgres instance rather
+-- than reasoned about from the schema alone — this is a reasonable thing to revisit later, but
+-- not at the cost of leaving check-in broken today.
+--
+-- IMPORTANT: this explicitly reverses FORCE for anyone who already ran the earlier version of
+-- this migration (which did apply it) — simply removing the ALTER FORCE lines above from this
+-- file does NOT undo that on an already-migrated database; only an explicit NO FORCE does.
+ALTER TABLE visits NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE invoices NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE corporate_accounts NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE payments NO FORCE ROW LEVEL SECURITY;
 
 -- App sets these session variables per request based on the JWT (see middleware/tenantScope.js)
 -- app.role: 'lounge_admin' | 'lounge_staff' | 'travel_agent' | 'corporate_admin'

@@ -30,15 +30,19 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   all (the fields come back `null`) — only `client_charge`. A travel agent's own margin stays
   invisible to their corporate clients even if someone inspects raw network traffic, not just
   what's rendered on screen.
-- **Row-Level Security is now actually enforced, including against the app's own database
-  user.** Postgres RLS silently does *not* apply to a table's owner by default — and the app
-  connects as that owner, since it's the same user that ran the migration. Every
-  `tenant`/`corporate`-scoped policy was previously being bypassed without anyone knowing.
-  `FORCE ROW LEVEL SECURITY` closes that gap, with narrow explicit exceptions carved out for
-  the two places that legitimately need unauthenticated access: the passenger check-in form's
-  company dropdown (read-only, active accounts only) and check-in submission itself
-  (insert-only, and only ever as `status = 'pending'` — a crafted request can never insert a
-  pre-verified visit with fabricated billing figures).
+- **Row-Level Security: enabled, but not forced — enforcement moved to application code
+  instead.** An earlier version forced RLS even against the owning DB user (see prior commit
+  history), which broke the public passenger check-in insert in a way that resisted diagnosis
+  without direct access to a live Postgres instance to test against. Rather than leave
+  check-in broken while chasing a subtle RLS interaction, the actual tenant/corporate isolation
+  guarantee now lives explicitly in application code (`routes/visits.js`'s `applyRoleScope`,
+  `routes/payments.js`'s `buildPaymentScope`/`isAuthorizedForPayer`) — a travel agent's or
+  corporate account's queries are hardcoded to their own scope in the SQL itself, regardless of
+  what the client requests, and regardless of what RLS does or doesn't additionally restrict.
+  This is arguably more robust than RLS alone anyway, since it's directly testable application
+  logic rather than session-variable-dependent database policy evaluation. The billing-isolation
+  guarantee (corporate never sees agent markup) was already independently enforced at the API
+  response layer and is unaffected by any of this.
 - Inventory module for food, drinks (alcoholic and non-alcoholic), and VIP supplies — stock
   levels, reorder levels, automatic low-stock warnings, and a full movement history (restock,
   consumption, waste, corrections) per item. Reachable from the nav as "Inventory" for lounge

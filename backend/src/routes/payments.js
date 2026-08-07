@@ -5,9 +5,52 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 const router = express.Router();
 router.use(authenticate);
 
+// Same principle as visits.js's applyRoleScope: enforced explicitly in application code, not
+// left to depend on RLS/session state alone. A travel agent's payments list is always
+// restricted to their own direct payments PLUS payments from any corporate account they
+// manage; a corporate admin's is always restricted to their own account only.
+function buildPaymentScope(user, conditions, params, i) {
+  if (user.role === 'travel_agent') {
+    conditions.push(`(
+      (payer_type = 'tenant' AND payer_id = $${i})
+      OR (payer_type = 'corporate_account' AND payer_id IN (SELECT id FROM corporate_accounts WHERE tenant_id = $${i}))
+    )`);
+    params.push(user.tenant_id);
+    return i + 1;
+  }
+  if (user.role === 'corporate_admin') {
+    conditions.push(`(payer_type = 'corporate_account' AND payer_id = $${i})`);
+    params.push(user.corporate_account_id);
+    return i + 1;
+  }
+  return i;
+}
+
+// Explicit yes/no check used by the statement endpoint, where the client names exactly one
+// payer up front — this confirms that payer is one this user is actually allowed to see before
+// running any of the balance/charge queries, rather than relying on the query itself failing
+// closed. Returns true unconditionally for lounge_admin/lounge_staff/cashier.
+async function isAuthorizedForPayer(user, payerType, payerId) {
+  if (['lounge_admin', 'lounge_staff', 'cashier'].includes(user.role)) return true;
+  if (user.role === 'travel_agent') {
+    if (payerType === 'tenant') return payerId === user.tenant_id;
+    if (payerType === 'corporate_account') {
+      const { rows } = await queryScoped(
+        user,
+        'SELECT 1 FROM corporate_accounts WHERE id = $1 AND tenant_id = $2',
+        [payerId, user.tenant_id]
+      );
+      return rows.length > 0;
+    }
+  }
+  if (user.role === 'corporate_admin') {
+    return payerType === 'corporate_account' && payerId === user.corporate_account_id;
+  }
+  return false;
+}
+
 // Posting a payment is a cash-handling action — restricted to cashier + lounge_admin, distinct
-// from lounge_staff who can verify passengers but shouldn't be recording money received. This
-// is the actual gate; the RLS policy on payments is a DB-layer backstop behind it.
+// from lounge_staff who can verify passengers but shouldn't be recording money received.
 router.post('/', requireRole('cashier', 'lounge_admin'), async (req, res) => {
   const { payer_type, payer_id, amount, payment_date, payment_method, reference_number, notes } = req.body;
   if (!payer_type || !payer_id || !amount || !payment_method) {
@@ -27,13 +70,17 @@ router.post('/', requireRole('cashier', 'lounge_admin'), async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// List payments — RLS scopes this automatically: a travel agent sees their own + their
-// clients' payments, a corporate account sees only its own, lounge roles see everything.
+// List payments — scoped explicitly in application code (see buildPaymentScope above): a
+// travel agent sees their own + their clients' payments, a corporate account sees only its
+// own, lounge roles and cashier see everything.
 router.get('/', async (req, res) => {
   const { payer_type, payer_id } = req.query;
   const conditions = [];
   const params = [];
   let i = 1;
+
+  i = buildPaymentScope(req.user, conditions, params, i);
+
   if (payer_type) { conditions.push(`payer_type = $${i}`); params.push(payer_type); i++; }
   if (payer_id) { conditions.push(`payer_id = $${i}`); params.push(payer_id); i++; }
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -59,6 +106,11 @@ router.get('/statement', async (req, res) => {
   }
   if (!['corporate_account', 'tenant'].includes(payer_type)) {
     return res.status(400).json({ error: 'Invalid payer_type' });
+  }
+
+  const authorized = await isAuthorizedForPayer(req.user, payer_type, payer_id);
+  if (!authorized) {
+    return res.status(403).json({ error: "You don't have access to this account's statement" });
   }
 
   const visitsCol = payer_type === 'corporate_account' ? 'corporate_account_id' : 'tenant_id';
