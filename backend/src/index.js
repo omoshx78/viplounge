@@ -1,4 +1,10 @@
 import express from 'express';
+// MUST be imported before any route files — it patches Express's Router so that an error
+// thrown or rejected inside an async route handler is automatically forwarded to the error
+// middleware below, instead of becoming an unhandled promise rejection that crashes the whole
+// Node process. Without this, a single bad request (e.g. hitting a table that doesn't exist
+// yet) can take the entire backend down, not just fail that one request.
+import 'express-async-errors';
 import cors from 'cors';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -33,3 +39,12 @@ app.use((err, _req, res, _next) => {
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`VIP lounge API listening on port ${port}`));
+
+// Final safety net: log anything that slips past express-async-errors and the pool's own error
+// handler rather than letting Node silently kill the whole process over one bad request.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});

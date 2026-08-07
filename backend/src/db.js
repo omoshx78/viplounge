@@ -12,6 +12,14 @@ export const pool = new Pool({
   max: 10,
 });
 
+// CRITICAL: pg's Pool emits 'error' when an idle connection in the pool has a problem
+// (network blip, database restart, etc). Without a listener here, Node treats that as an
+// uncaught exception and kills the entire process — every route, not just the one query that
+// failed. This has almost certainly been the real cause of the backend going down entirely.
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle database client:', err.message);
+});
+
 // Runs a query within a transaction that has the RLS session variables set for this
 // request's user, so Postgres enforces tenant/corporate isolation at the DB layer.
 export async function queryScoped(reqUser, text, params) {
