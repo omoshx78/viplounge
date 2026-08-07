@@ -1,0 +1,28 @@
+name: Purge expired passport/ID images
+
+# Free alternative to a Render Cron Job (which requires a paid Render plan).
+# Runs the same script Render's cron job would have run, on GitHub's free scheduler instead.
+# Requires one repo secret: DATABASE_URL — copy the "External Database URL" from your
+# Render Postgres instance (Render dashboard > vip-lounge-db > Connect) into
+# Settings > Secrets and variables > Actions > New repository secret in this GitHub repo.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # daily at 03:00 UTC
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab too
+
+jobs:
+  purge-images:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm run purge-images
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
