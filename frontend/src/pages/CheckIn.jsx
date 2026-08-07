@@ -94,25 +94,33 @@ export default function CheckIn() {
 
   if (submitted) {
     return (
-      <div className="app-shell">
-        <div className="card" style={{ textAlign: 'center' }}>
+      <div>
+        <div className="checkin-hero">
+          <div className="eyebrow">Juba International Airport</div>
           <h1>You're checked in</h1>
-          <p>Please proceed to the front desk — a member of staff will verify your passport and boarding pass to complete your entry.</p>
-          <p style={{ color: 'var(--text-muted)' }}>Reference: {submitted.visit_id}</p>
-          <button className="secondary" onClick={() => { setSubmitted(null); setForm(empty); setReturningNotice(false); }}>
-            Check in another passenger
-          </button>
+        </div>
+        <div className="app-shell">
+          <div className="card" style={{ textAlign: 'center' }}>
+            <p>Please proceed to the front desk — a member of staff will verify your passport and boarding pass to complete your entry.</p>
+            <p style={{ color: 'var(--text-muted)' }}>Reference: {submitted.visit_id}</p>
+            <button className="secondary" onClick={() => { setSubmitted(null); setForm(empty); setReturningNotice(false); }}>
+              Check in another passenger
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div>
+      <div className="checkin-hero">
+        <div className="eyebrow">Juba International Airport</div>
+        <h1>Welcome to the VIP Lounge</h1>
+        <p>Please check in below — it takes about a minute, and our staff will have you settled in shortly.</p>
+      </div>
+      <div className="app-shell">
       <div className="card">
-        <h1>Lounge check-in</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Fill in your details below. This takes about a minute.</p>
-
         {returningNotice && (
           <div className="badge badge-success" style={{ marginBottom: 14 }}>
             Welcome back — we've pre-filled your details
@@ -226,6 +234,7 @@ export default function CheckIn() {
           {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
           <button type="submit" disabled={submitting || !form.consent_accepted}>{submitting ? 'Submitting...' : 'Submit check-in'}</button>
         </form>
+      </div>
       </div>
     </div>
   );

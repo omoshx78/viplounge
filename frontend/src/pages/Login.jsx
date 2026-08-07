@@ -36,20 +36,26 @@ export default function Login() {
   }
 
   return (
-    <div className="app-shell" style={{ maxWidth: 420 }}>
-      <div className="card">
-        <h1>Sign in</h1>
-        {sessionMessage && (
-          <div className="badge badge-warning" style={{ marginBottom: 14 }}>{sessionMessage}</div>
-        )}
-        <form onSubmit={handleSubmit}>
-          <label>Email</label>
-          <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <label>Password</label>
-          <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-          <button type="submit">Sign in</button>
-        </form>
+    <div className="login-page">
+      <div className="login-page-inner">
+        <div className="login-welcome">
+          <div className="eyebrow">Juba International Airport</div>
+          <h1>Welcome to the VIP Lounge</h1>
+          <p>Sign in to manage check-ins, reports, and stock.</p>
+        </div>
+        <div className="card">
+          {sessionMessage && (
+            <div className="badge badge-warning" style={{ marginBottom: 14 }}>{sessionMessage}</div>
+          )}
+          <form onSubmit={handleSubmit}>
+            <label>Email</label>
+            <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <label>Password</label>
+            <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+            <button type="submit" style={{ width: '100%' }}>Sign in</button>
+          </form>
+        </div>
       </div>
     </div>
   );

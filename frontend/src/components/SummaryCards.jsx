@@ -62,16 +62,16 @@ export default function SummaryCards() {
   // permitted) for lounge staff/admin — a travel agent or corporate account has no reason to
   // see other people's unverified check-ins or the lounge's stock room.
   if (isLoungeStaffOrAdmin && pendingCount !== null) {
-    cards.unshift({ label: 'Awaiting verification', value: pendingCount });
+    cards.unshift({ label: 'Awaiting verification', value: pendingCount, alert: pendingCount > 0 });
   }
   if (isLoungeStaffOrAdmin && lowStockCount !== null) {
-    cards.unshift({ label: 'Items below reorder level', value: lowStockCount });
+    cards.unshift({ label: 'Items below reorder level', value: lowStockCount, alert: lowStockCount > 0 });
   }
 
   return (
     <div className="grid grid-3" style={{ marginBottom: 20 }}>
       {cards.map((c) => (
-        <div className="stat-card" key={c.label}>
+        <div className={`stat-card ${c.alert ? 'stat-alert' : ''}`} key={c.label}>
           <div className="stat-value">{c.value}</div>
           <div className="stat-label">{c.label}</div>
         </div>

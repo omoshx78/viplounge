@@ -99,7 +99,8 @@ function ItemDetail({ item, onAdjusted }) {
     }
   }
 
-  const lowStock = Number(item.current_stock) <= Number(item.reorder_level);
+  const outOfStock = Number(item.current_stock) <= 0;
+  const lowStock = item.low_stock && !outOfStock;
 
   return (
     <div>
@@ -109,11 +110,12 @@ function ItemDetail({ item, onAdjusted }) {
             <h2 style={{ margin: 0 }}>{item.name}</h2>
             <p style={{ color: 'var(--text-muted)', margin: '4px 0 0', fontSize: 13 }}>{CATEGORY_LABELS[item.category]}</p>
           </div>
-          {lowStock && <span className="badge badge-danger">Below reorder level</span>}
+          {outOfStock && <span className="badge badge-danger">Out of stock</span>}
+          {lowStock && <span className="badge badge-warning">Below reorder level</span>}
         </div>
 
         <div className="grid grid-2" style={{ marginTop: 16 }}>
-          <div className="stat-card">
+          <div className={`stat-card ${outOfStock || lowStock ? 'stat-alert' : ''}`}>
             <div className="stat-value">{Number(item.current_stock).toFixed(item.unit === 'kg' || item.unit === 'liter' ? 2 : 0)} {item.unit}</div>
             <div className="stat-label">Current stock</div>
           </div>
@@ -222,16 +224,21 @@ export default function Inventory() {
               {grouped.map(({ cat, items: catItems }) => (
                 <div key={cat}>
                   <div className="inventory-category-label">{CATEGORY_LABELS[cat]}</div>
-                  {catItems.map(item => (
-                    <div
-                      key={item.id}
-                      className={`inventory-item-row ${item.id === selectedId ? 'active' : ''}`}
-                      onClick={() => setSelectedId(item.id)}
-                    >
-                      <span>{item.name}<br /><span className="inventory-item-unit">{Number(item.current_stock)} {item.unit}</span></span>
-                      {item.low_stock && <span className="low-stock-dot" title="Below reorder level" />}
-                    </div>
-                  ))}
+                  {catItems.map(item => {
+                    const outOfStock = Number(item.current_stock) <= 0;
+                    const lowStock = item.low_stock && !outOfStock;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`inventory-item-row ${item.id === selectedId ? 'active' : ''} ${outOfStock ? 'out-of-stock' : lowStock ? 'low-stock' : ''}`}
+                        onClick={() => setSelectedId(item.id)}
+                      >
+                        <span>{item.name}<br /><span className="inventory-item-unit">{Number(item.current_stock)} {item.unit}</span></span>
+                        {outOfStock && <span className="stock-pill out">OUT</span>}
+                        {lowStock && <span className="stock-pill low">LOW</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
               {items.length === 0 && <p style={{ padding: 10, color: 'var(--text-muted)' }}>No items yet.</p>}
