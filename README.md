@@ -30,6 +30,25 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   all (the fields come back `null`) — only `client_charge`. A travel agent's own margin stays
   invisible to their corporate clients even if someone inspects raw network traffic, not just
   what's rendered on screen.
+- **Row-Level Security is now actually enforced, including against the app's own database
+  user.** Postgres RLS silently does *not* apply to a table's owner by default — and the app
+  connects as that owner, since it's the same user that ran the migration. Every
+  `tenant`/`corporate`-scoped policy was previously being bypassed without anyone knowing.
+  `FORCE ROW LEVEL SECURITY` closes that gap, with narrow explicit exceptions carved out for
+  the two places that legitimately need unauthenticated access: the passenger check-in form's
+  company dropdown (read-only, active accounts only) and check-in submission itself
+  (insert-only, and only ever as `status = 'pending'` — a crafted request can never insert a
+  pre-verified visit with fabricated billing figures).
+- Inventory module for food, drinks (alcoholic and non-alcoholic), and VIP supplies — stock
+  levels, reorder levels, automatic low-stock warnings, and a full movement history (restock,
+  consumption, waste, corrections) per item. Reachable from the nav as "Inventory" for lounge
+  admin/staff. Layout is deliberately master-detail: a categorized item menu on the left, the
+  selected item's stock detail and movement log on the right.
+- A backend crash in one request can no longer take the entire server down. Two real gaps were
+  closed here: async route errors weren't being caught (an unhandled promise rejection crashes
+  the whole Node process, not just that request), and the Postgres connection pool had no error
+  listener (same failure mode for a dropped idle connection). Both are now handled, converting
+  what used to be a total outage into a normal `500` response for the one request that failed.
 - Staff verification queue (tablet-friendly), approve/reject, billing calculated on approval
 - Multi-tenant data isolation via Postgres Row-Level Security — not just app-layer filtering
 - Rate cards: editable, versioned (old visits keep historical rates), scoped globally / per travel

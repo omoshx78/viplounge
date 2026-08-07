@@ -1,7 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { pool } from '../db.js';
+import { pool, queryScoped } from '../db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -22,8 +22,12 @@ router.post('/tenants', async (req, res) => {
 });
 
 // ---------- Corporate accounts ----------
-router.get('/corporate-accounts', async (_req, res) => {
-  const { rows } = await pool.query(
+// Uses queryScoped, not a plain pool query — corporate_accounts has RLS forced even for the
+// owning DB user; the corp_accounts_lounge_full policy grants full access once the session's
+// app.role is set to lounge_admin (which this whole router requires anyway).
+router.get('/corporate-accounts', async (req, res) => {
+  const { rows } = await queryScoped(
+    req.user,
     `SELECT ca.*, t.name AS tenant_name FROM corporate_accounts ca
      LEFT JOIN tenants t ON t.id = ca.tenant_id ORDER BY ca.name`
   );
@@ -31,7 +35,8 @@ router.get('/corporate-accounts', async (_req, res) => {
 });
 router.post('/corporate-accounts', async (req, res) => {
   const { tenant_id, name, billing_contact_name, billing_contact_email, report_cadence } = req.body;
-  const { rows } = await pool.query(
+  const { rows } = await queryScoped(
+    req.user,
     `INSERT INTO corporate_accounts (tenant_id, name, billing_contact_name, billing_contact_email, report_cadence)
      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
     [tenant_id || null, name, billing_contact_name, billing_contact_email, report_cadence || 'monthly']
@@ -144,7 +149,8 @@ router.post('/platform-subscription/generate-charge', async (req, res) => {
   let amountDue = 0;
 
   if (current.billing_model === 'per_pax') {
-    const count = await pool.query(
+    const count = await queryScoped(
+      req.user,
       `SELECT COUNT(*) FROM visits WHERE status = 'verified' AND visit_datetime BETWEEN $1 AND $2`,
       [period_start, period_end]
     );

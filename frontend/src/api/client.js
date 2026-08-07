@@ -77,6 +77,13 @@ export const api = {
   listUsers: () => request('/api/admin/users'),
   createUser: (payload) => request('/api/admin/users', { method: 'POST', body: payload }),
   generateResetLink: (userId) => request(`/api/admin/users/${userId}/generate-reset-link`, { method: 'POST' }),
+
+  listInventoryItems: () => request('/api/inventory/items'),
+  inventorySummary: () => request('/api/inventory/summary'),
+  itemTransactions: (itemId) => request(`/api/inventory/items/${itemId}/transactions`),
+  createInventoryItem: (payload) => request('/api/inventory/items', { method: 'POST', body: payload }),
+  updateInventoryItem: (itemId, payload) => request(`/api/inventory/items/${itemId}`, { method: 'PUT', body: payload }),
+  adjustInventoryItem: (itemId, payload) => request(`/api/inventory/items/${itemId}/adjust`, { method: 'POST', body: payload }),
 };
 
 // Client-side CSV export — works for any list of flat objects, no backend round-trip needed.

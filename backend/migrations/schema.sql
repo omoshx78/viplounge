@@ -83,6 +83,33 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ---------- Inventory (F&B and VIP supplies stock control) ----------
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('food', 'non_alcoholic', 'alcoholic', 'supplies')),
+  unit TEXT NOT NULL DEFAULT 'pcs', -- e.g. pcs, bottle, tot, kg, liter, tray
+  current_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+  reorder_level NUMERIC(10,2) NOT NULL DEFAULT 0, -- triggers a low-stock warning at or below this
+  unit_cost NUMERIC(10,2),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Every stock change (restock, consumption, waste, correction) is one row here — this is the
+-- audit trail behind current_stock, the same "ledger, not just a running total" pattern used
+-- for visits/billing elsewhere in this schema.
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  change_amount NUMERIC(10,2) NOT NULL, -- positive = restock/correction up, negative = consumption/waste
+  reason TEXT NOT NULL CHECK (reason IN ('restock', 'consumption', 'waste', 'adjustment')),
+  notes TEXT,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_transactions_item ON inventory_transactions(item_id, created_at);
+
 -- ---------- Password reset tokens ----------
 -- Supports self-service password changes and admin-initiated reset links. The token itself is
 -- never stored in plain text — only its hash — so a database leak alone can't be used to reset
@@ -180,6 +207,14 @@ ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE corporate_accounts ENABLE ROW LEVEL SECURITY;
 
+-- By default, Postgres RLS does NOT apply to a table's owner — and the database user this app
+-- connects as IS the owner, since it's the same user that ran this migration. Without FORCE,
+-- every policy below would be silently bypassed for all queries, making the tenant/corporate
+-- isolation purely decorative. FORCE closes that gap.
+ALTER TABLE visits FORCE ROW LEVEL SECURITY;
+ALTER TABLE invoices FORCE ROW LEVEL SECURITY;
+ALTER TABLE corporate_accounts FORCE ROW LEVEL SECURITY;
+
 -- App sets these session variables per request based on the JWT (see middleware/tenantScope.js)
 -- app.role: 'lounge_admin' | 'lounge_staff' | 'travel_agent' | 'corporate_admin'
 -- app.tenant_id: uuid or ''
@@ -207,6 +242,16 @@ CREATE POLICY visits_corporate_scoped ON visits
     AND corporate_account_id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID
   );
 
+-- The passenger self check-in form is unauthenticated (a passenger has no login) but still
+-- needs to create its own visit row. This allows that one specific action — inserting a new
+-- row — while constraining it to status = 'pending' only, so a crafted request can never insert
+-- a row that's already 'verified' with fabricated billing figures; only staff verification
+-- (which goes through queryScoped as lounge_admin/lounge_staff) can ever set status to verified.
+DROP POLICY IF EXISTS visits_public_checkin_insert ON visits;
+CREATE POLICY visits_public_checkin_insert ON visits
+  FOR INSERT
+  WITH CHECK (status = 'pending');
+
 DROP POLICY IF EXISTS invoices_lounge_full ON invoices;
 CREATE POLICY invoices_lounge_full ON invoices
   USING (current_setting('app.role', true) IN ('lounge_admin','lounge_staff'));
@@ -230,6 +275,16 @@ CREATE POLICY corp_accounts_tenant_scoped ON corporate_accounts
 DROP POLICY IF EXISTS corp_accounts_self_scoped ON corporate_accounts;
 CREATE POLICY corp_accounts_self_scoped ON corporate_accounts
   USING (current_setting('app.role', true) = 'corporate_admin' AND id = NULLIF(current_setting('app.corporate_account_id', true), '')::UUID);
+
+-- The passenger check-in form is unauthenticated (a passenger has no login) but still needs to
+-- read the list of active corporate accounts to populate its "which company sponsors you"
+-- dropdown. This is a narrow, deliberate public exception: SELECT-only, and only the rows
+-- already flagged active — it grants no access to INSERT/UPDATE/DELETE, and inactive/archived
+-- corporate accounts stay invisible to it.
+DROP POLICY IF EXISTS corp_accounts_public_active_read ON corporate_accounts;
+CREATE POLICY corp_accounts_public_active_read ON corporate_accounts
+  FOR SELECT
+  USING (active = TRUE);
 
 -- NOTE: cash/individual visits (corporate_account_id IS NULL, tenant_id IS NULL) never match
 -- the tenant_scoped or corporate_scoped policies above, so they are structurally invisible

@@ -62,3 +62,24 @@ ON CONFLICT (email) DO NOTHING;
 INSERT INTO users (email, password_hash, full_name, role, corporate_account_id) VALUES
   ('finance@acmemining.example', '$2a$10$MC2ma1pNKLmMoyj7bSMAG.gzqTK7g9DLH1k1cqm2MtP8ek9ARtN8a', 'Acme Finance', 'corporate_admin', '22222222-2222-2222-2222-222222222222')
 ON CONFLICT (email) DO NOTHING;
+
+-- Sample inventory: lounge F&B and VIP supplies, with realistic reorder levels
+INSERT INTO inventory_items (name, category, unit, current_stock, reorder_level, unit_cost)
+SELECT * FROM (VALUES
+  ('Samosas', 'food', 'pcs', 120, 40, 0.35),
+  ('Sausages', 'food', 'pcs', 90, 30, 0.45),
+  ('Lunch trays (daily set menu)', 'food', 'tray', 25, 10, 6.00),
+  ('Assorted pastries', 'food', 'pcs', 60, 20, 0.90),
+  ('Tea bags', 'non_alcoholic', 'pcs', 300, 100, 0.05),
+  ('Coffee (ground)', 'non_alcoholic', 'kg', 8, 3, 12.00),
+  ('Sodas (assorted cans)', 'non_alcoholic', 'can', 150, 50, 0.60),
+  ('Bottled water', 'non_alcoholic', 'bottle', 200, 60, 0.30),
+  ('Fresh juice', 'non_alcoholic', 'liter', 15, 5, 3.50),
+  ('Beer (assorted bottles)', 'alcoholic', 'bottle', 80, 24, 1.80),
+  ('Whiskey (tots)', 'alcoholic', 'tot', 150, 40, 2.50),
+  ('Wine (bottles)', 'alcoholic', 'bottle', 20, 8, 9.00),
+  ('Napkins', 'supplies', 'pack', 40, 15, 1.20),
+  ('Disposable cups', 'supplies', 'pack', 35, 15, 2.00),
+  ('Toiletries (VIP amenity kits)', 'supplies', 'pcs', 50, 20, 1.50)
+) AS v(name, category, unit, current_stock, reorder_level, unit_cost)
+WHERE NOT EXISTS (SELECT 1 FROM inventory_items WHERE inventory_items.name = v.name);

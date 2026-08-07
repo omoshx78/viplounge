@@ -102,6 +102,26 @@ nav.topnav a.active { color: var(--accent); font-weight: 500; }
 .autocomplete-list div { padding: 8px 10px; cursor: pointer; font-size: 13px; }
 .autocomplete-list div:hover { background: var(--bg); }
 
+/* Inventory master-detail layout: item menu on the left, selected item's detail on the right */
+.inventory-layout { display: flex; gap: 20px; align-items: flex-start; }
+.inventory-menu { width: 280px; flex-shrink: 0; }
+.inventory-detail { flex: 1; min-width: 0; }
+@media (max-width: 780px) { .inventory-layout { flex-direction: column; } .inventory-menu { width: 100%; } }
+
+.inventory-category-label {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); margin: 14px 0 6px; padding-left: 4px;
+}
+.inventory-item-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.inventory-item-row:hover { background: var(--bg); }
+.inventory-item-row.active { background: var(--accent); color: #fff; }
+.inventory-item-row.active .inventory-item-unit { color: rgba(255,255,255,0.75); }
+.inventory-item-unit { font-size: 12px; color: var(--text-muted); }
+.low-stock-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: inline-block; margin-left: 8px; flex-shrink: 0; }
+
 @media print {
   nav.topnav, .toolbar, .no-print { display: none !important; }
   body { background: #fff; }

@@ -1,5 +1,5 @@
 import express from 'express';
-import { pool } from '../db.js';
+import { queryScoped } from '../db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { resolveBilling } from '../utils/billing.js';
 
@@ -7,8 +7,12 @@ const router = express.Router();
 router.use(authenticate, requireRole('lounge_admin', 'lounge_staff'));
 
 // Live queue of pending check-ins waiting for front-desk verification.
-router.get('/queue', async (_req, res) => {
-  const { rows } = await pool.query(
+// Uses queryScoped (not a plain pool query) because visits/corporate_accounts now have RLS
+// forced even for the owning DB user — the visits_lounge_full / corp_accounts_lounge_full
+// policies grant full access once the session's app.role is set to lounge_admin/lounge_staff.
+router.get('/queue', async (req, res) => {
+  const { rows } = await queryScoped(
+    req.user,
     `SELECT v.id, v.direction, v.flight_number, v.payment_type, v.created_at,
             v.staff_consultant_id, v.department, v.branch_project, v.reference_number,
             v.passport_image_data, v.staff_id_image_data, v.consent_accepted,
@@ -27,7 +31,7 @@ router.get('/queue', async (_req, res) => {
 // This is the moment billing gets calculated and locked onto the visit record.
 router.post('/verify/:visitId', async (req, res) => {
   const { visitId } = req.params;
-  const visitResult = await pool.query('SELECT * FROM visits WHERE id = $1', [visitId]);
+  const visitResult = await queryScoped(req.user, 'SELECT * FROM visits WHERE id = $1', [visitId]);
   const visit = visitResult.rows[0];
   if (!visit) return res.status(404).json({ error: 'Visit not found' });
   if (visit.status !== 'pending') return res.status(400).json({ error: `Visit already ${visit.status}` });
@@ -38,7 +42,8 @@ router.post('/verify/:visitId', async (req, res) => {
     visitDateTime: visit.visit_datetime,
   });
 
-  const updated = await pool.query(
+  const updated = await queryScoped(
+    req.user,
     `UPDATE visits SET
        status = 'verified',
        verified_by_user_id = $1,
@@ -55,7 +60,8 @@ router.post('/verify/:visitId', async (req, res) => {
 });
 
 router.post('/reject/:visitId', async (req, res) => {
-  const { rows } = await pool.query(
+  const { rows } = await queryScoped(
+    req.user,
     `UPDATE visits SET status = 'rejected', verified_by_user_id = $1, verified_at = now()
      WHERE id = $2 AND status = 'pending' RETURNING *`,
     [req.user.id, req.params.visitId]

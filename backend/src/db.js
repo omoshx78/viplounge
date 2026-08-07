@@ -22,13 +22,19 @@ pool.on('error', (err) => {
 
 // Runs a query within a transaction that has the RLS session variables set for this
 // request's user, so Postgres enforces tenant/corporate isolation at the DB layer.
+//
+// IMPORTANT: this uses set_config(), not "SET LOCAL x = $1". Postgres's SET command is a
+// utility statement that does NOT accept bind parameters ($1) — only set_config() (a regular
+// function call) does. Using SET LOCAL with a parameter here was throwing a Postgres syntax
+// error on every single call, which is why RLS-scoped endpoints (visits list, search, summary)
+// were failing with 500s.
 export async function queryScoped(reqUser, text, params) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`SET LOCAL app.role = $1`, [reqUser?.role || '']);
-    await client.query(`SET LOCAL app.tenant_id = $1`, [reqUser?.tenant_id || '']);
-    await client.query(`SET LOCAL app.corporate_account_id = $1`, [reqUser?.corporate_account_id || '']);
+    await client.query(`SELECT set_config('app.role', $1, true)`, [reqUser?.role || '']);
+    await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [reqUser?.tenant_id || '']);
+    await client.query(`SELECT set_config('app.corporate_account_id', $1, true)`, [reqUser?.corporate_account_id || '']);
     const result = await client.query(text, params);
     await client.query('COMMIT');
     return result;

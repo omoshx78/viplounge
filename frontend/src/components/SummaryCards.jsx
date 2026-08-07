@@ -6,6 +6,7 @@ export default function SummaryCards() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pendingCount, setPendingCount] = useState(null);
+  const [lowStockCount, setLowStockCount] = useState(null);
   const user = getCurrentUser();
   const isLoungeStaffOrAdmin = user?.role === 'lounge_admin' || user?.role === 'lounge_staff';
 
@@ -16,8 +17,9 @@ export default function SummaryCards() {
       const data = await api.summary({});
       setS(data);
       if (isLoungeStaffOrAdmin) {
-        const queue = await api.staffQueue();
+        const [queue, inventorySummary] = await Promise.all([api.staffQueue(), api.inventorySummary()]);
         setPendingCount(queue.length);
+        setLowStockCount(Number(inventorySummary.low_stock_items));
       }
     } catch (err) {
       setError(err.message || 'Could not load metrics');
@@ -56,10 +58,14 @@ export default function SummaryCards() {
     { label: 'Individual revenue', value: `$${Number(s.individual_revenue).toFixed(2)}` },
   ];
 
-  // Pending verification queue is only meaningful (and only permitted) for lounge staff/admin —
-  // a travel agent or corporate account shouldn't see other people's unverified check-ins.
+  // Pending verification queue and low-stock inventory are only meaningful (and only
+  // permitted) for lounge staff/admin — a travel agent or corporate account has no reason to
+  // see other people's unverified check-ins or the lounge's stock room.
   if (isLoungeStaffOrAdmin && pendingCount !== null) {
     cards.unshift({ label: 'Awaiting verification', value: pendingCount });
+  }
+  if (isLoungeStaffOrAdmin && lowStockCount !== null) {
+    cards.unshift({ label: 'Items below reorder level', value: lowStockCount });
   }
 
   return (
