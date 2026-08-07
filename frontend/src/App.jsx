@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from 'react
 import { getCurrentUser, clearSession } from './api/client';
 import CheckIn from './pages/CheckIn';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
+import ResetPassword from './pages/ResetPassword';
 import StaffVerification from './pages/StaffVerification';
 import CorporateDashboard from './pages/dashboards/CorporateDashboard';
 import AgentDashboard from './pages/dashboards/AgentDashboard';
@@ -29,6 +31,7 @@ function TopNav() {
       </div>
       <div>
         <span style={{ marginRight: 12, fontSize: 13, color: 'var(--text-muted)' }}>{user.full_name} ({user.role})</span>
+        <Link to="/change-password" style={{ marginRight: 12 }}>Change password</Link>
         <button className="secondary" onClick={() => { clearSession(); navigate('/login'); }}>Sign out</button>
       </div>
     </nav>
@@ -42,6 +45,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<CheckIn />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/change-password" element={<RequireRole roles={['lounge_admin', 'lounge_staff', 'travel_agent', 'corporate_admin']}><ChangePassword /></RequireRole>} />
         <Route path="/staff" element={<RequireRole roles={['lounge_admin', 'lounge_staff']}><StaffVerification /></RequireRole>} />
         <Route path="/dashboard/lounge-admin" element={<RequireRole roles={['lounge_admin']}><LoungeAdminDashboard /></RequireRole>} />
         <Route path="/dashboard/agent" element={<RequireRole roles={['travel_agent']}><AgentDashboard /></RequireRole>} />

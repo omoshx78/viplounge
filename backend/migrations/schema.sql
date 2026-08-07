@@ -83,6 +83,20 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ---------- Password reset tokens ----------
+-- Supports self-service password changes and admin-initiated reset links. The token itself is
+-- never stored in plain text — only its hash — so a database leak alone can't be used to reset
+-- anyone's password.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id);
+
 -- ---------- Passengers ----------
 CREATE TABLE IF NOT EXISTS passengers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

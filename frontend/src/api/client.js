@@ -38,6 +38,8 @@ async function request(path, { method = 'GET', body, auth = true, params } = {})
 
 export const api = {
   login: (email, password) => request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  changePassword: (current_password, new_password) => request('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
+  resetPassword: (token, new_password) => request('/api/auth/reset-password', { method: 'POST', body: { token, new_password }, auth: false }),
 
   lookupPassenger: (passportNumber) => request(`/api/checkin/lookup/${encodeURIComponent(passportNumber)}`, { auth: false }),
   listCorporateAccountsPublic: () => request('/api/checkin/corporate-accounts', { auth: false }),
@@ -60,6 +62,9 @@ export const api = {
   getPlatformSubscription: () => request('/api/admin/platform-subscription'),
   updatePlatformSubscription: (payload) => request('/api/admin/platform-subscription', { method: 'POST', body: payload }),
   generateSubscriptionCharge: (payload) => request('/api/admin/platform-subscription/generate-charge', { method: 'POST', body: payload }),
+  listUsers: () => request('/api/admin/users'),
+  createUser: (payload) => request('/api/admin/users', { method: 'POST', body: payload }),
+  generateResetLink: (userId) => request(`/api/admin/users/${userId}/generate-reset-link`, { method: 'POST' }),
 };
 
 // Client-side CSV export — works for any list of flat objects, no backend round-trip needed.

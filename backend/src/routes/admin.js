@@ -1,4 +1,6 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { pool } from '../db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
@@ -158,6 +160,80 @@ router.post('/platform-subscription/generate-charge', async (req, res) => {
     [period_start, period_end, paxCount, amountDue]
   );
   res.status(201).json(rows[0]);
+});
+
+// ---------- Users (logins for staff, agents, and corporate admins) ----------
+// Only lounge_admin can create logins — this is how a travel agent or corporate account
+// actually gets access to their own scoped dashboard after being set up above.
+router.get('/users', async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.email, u.full_name, u.role, u.active, u.created_at,
+            t.name AS tenant_name, ca.name AS corporate_account_name
+     FROM users u
+     LEFT JOIN tenants t ON t.id = u.tenant_id
+     LEFT JOIN corporate_accounts ca ON ca.id = u.corporate_account_id
+     ORDER BY u.created_at DESC`
+  );
+  res.json(rows);
+});
+
+router.post('/users', async (req, res) => {
+  const { email, password, full_name, role, tenant_id, corporate_account_id } = req.body;
+  if (!email || !password || !full_name || !role) {
+    return res.status(400).json({ error: 'email, password, full_name and role are required' });
+  }
+  if (!['lounge_admin', 'lounge_staff', 'travel_agent', 'corporate_admin'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  if (role === 'travel_agent' && !tenant_id) {
+    return res.status(400).json({ error: 'tenant_id is required for a travel_agent login' });
+  }
+  if (role === 'corporate_admin' && !corporate_account_id) {
+    return res.status(400).json({ error: 'corporate_account_id is required for a corporate_admin login' });
+  }
+  try {
+    const password_hash = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, password_hash, full_name, role, tenant_id, corporate_account_id)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, email, full_name, role, tenant_id, corporate_account_id, created_at`,
+      [
+        email, password_hash, full_name, role,
+        role === 'travel_agent' ? tenant_id : null,
+        role === 'corporate_admin' ? corporate_account_id : null,
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A user with that email already exists' });
+    res.status(500).json({ error: 'Failed to create user', detail: err.message });
+  }
+});
+
+// Generates a one-time password reset link for a user who's forgotten their password.
+// The admin shares this link manually (email/WhatsApp/etc.) — there's no automatic email
+// delivery in this scaffold. The admin never learns the new password the user sets when they
+// follow the link; only the user chooses it. Link expires after 24 hours or first use.
+router.post('/users/:id/generate-reset-link', async (req, res) => {
+  const { rows: userRows } = await pool.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
+  if (!userRows[0]) return res.status(404).json({ error: 'User not found' });
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const token_hash = crypto.createHash('sha256').update(token).digest('hex');
+  const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  await pool.query(
+    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1,$2,$3)`,
+    [req.params.id, token_hash, expires_at]
+  );
+
+  // The frontend's reset page reads the token from the URL — share this exact link with the user.
+  const frontendOrigin = (process.env.CORS_ORIGIN || '').split(',')[0].trim() || 'https://your-app.vercel.app';
+  res.status(201).json({
+    reset_link: `${frontendOrigin}/reset-password?token=${token}`,
+    expires_at,
+    for_email: userRows[0].email,
+  });
 });
 
 export default router;

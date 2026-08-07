@@ -20,6 +20,16 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   30 days while keeping the rest of the visit record (dates, billing, verification status)
   intact for reporting and reconciliation. Runs as a free GitHub Actions workflow by default
   (Render's free plan doesn't support Cron Jobs) — see the deployment section below.
+- Lounge admin can add real travel agents and corporate accounts, and create logins for them,
+  directly from the dashboard — no more hand-editing the seed file to onboard a real partner.
+- Self-service password changes once logged in, plus an admin-generated one-time reset link
+  for forgotten passwords (shared manually — there's no email delivery wired in yet, see
+  "What's intentionally out of scope" below).
+- **Billing data isolation is enforced at the API layer, not just hidden in the UI**: a
+  corporate account's requests never receive `lounge_cost` or `agent_markup` in the response at
+  all (the fields come back `null`) — only `client_charge`. A travel agent's own margin stays
+  invisible to their corporate clients even if someone inspects raw network traffic, not just
+  what's rendered on screen.
 - Staff verification queue (tablet-friendly), approve/reject, billing calculated on approval
 - Multi-tenant data isolation via Postgres Row-Level Security — not just app-layer filtering
 - Rate cards: editable, versioned (old visits keep historical rates), scoped globally / per travel
@@ -37,8 +47,9 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   URL — see "Extending this" below.
 - Real payment gateway integration for card payments (the check-in form records `payment_type`
   but doesn't process a live charge — wire in Stripe/local acquirer here)
-- Email/SMS/WhatsApp delivery of scheduled reports (the data endpoints exist; a scheduler/cron
-  job plus a notification provider needs to be added to actually push reports out)
+- Email/SMS/WhatsApp delivery of scheduled reports **and of password reset links** — both exist
+  as data/links you can copy, but nothing sends them automatically yet. Wiring in a provider
+  like Postmark/SendGrid/Twilio would cover both use cases at once.
 - True PDF generation for invoices (currently CSV + browser print; a templated PDF invoice
   generator, e.g. via a headless-Chrome or PDF library, is a natural next step)
 

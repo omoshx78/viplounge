@@ -47,11 +47,20 @@ router.get('/', async (req, res) => {
 
   params.push(limit, offset);
 
+  // CRITICAL: lounge_cost and agent_markup are the travel agent's cost basis and margin —
+  // commercially sensitive information a corporate account must never see, even in the raw
+  // API response (not just hidden in the UI). Only lounge_admin/lounge_staff/travel_agent
+  // get those two columns; corporate_admin gets client_charge only. This is enforced here at
+  // the query level so it holds even if someone inspects network traffic directly.
+  const canSeeBreakdown = ['lounge_admin', 'lounge_staff', 'travel_agent'].includes(req.user.role);
+
   const { rows } = await queryScoped(
     req.user,
     `SELECT v.id, v.direction, v.flight_number, v.visit_datetime, v.status,
             v.staff_consultant_id, v.department, v.branch_project, v.reference_number,
-            v.payment_type, v.lounge_cost, v.agent_markup, v.client_charge,
+            v.payment_type,
+            ${canSeeBreakdown ? 'v.lounge_cost, v.agent_markup,' : 'NULL AS lounge_cost, NULL AS agent_markup,'}
+            v.client_charge,
             p.full_name, p.passport_number,
             ca.name AS corporate_account_name, t.name AS tenant_name
      FROM visits v
@@ -105,7 +114,14 @@ router.get('/summary', async (req, res) => {
      FROM visits WHERE ${conditions.join(' AND ')}`,
     params
   );
-  res.json(rows[0]);
+
+  const summary = rows[0];
+  // Same rule as the visits list: a corporate account never sees the agent's margin,
+  // even in an aggregate figure.
+  if (req.user.role === 'corporate_admin') {
+    delete summary.total_agent_markup;
+  }
+  res.json(summary);
 });
 
 export default router;

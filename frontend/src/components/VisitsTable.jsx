@@ -50,13 +50,18 @@ export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showC
   }
 
   function handleExport() {
+    // lounge_cost/agent_markup come back as null from the API for a corporate_admin viewer
+    // (enforced server-side, not just hidden here) — so this conditionally includes those
+    // columns only when the data actually contains them.
+    const hasBreakdown = rows.length > 0 && rows[0].lounge_cost !== null && rows[0].lounge_cost !== undefined;
     downloadCsv(`lounge-visits-${new Date().toISOString().slice(0, 10)}.csv`, rows.map(r => ({
       Name: r.full_name, Passport: r.passport_number, Direction: r.direction, Flight: r.flight_number,
       Date: new Date(r.visit_datetime).toLocaleString(), Status: r.status,
       'Corporate account': r.corporate_account_name || '', 'Travel agent': r.tenant_name || '',
       'Staff/Consultant ID': r.staff_consultant_id || '', Department: r.department || '',
       'Branch/Project': r.branch_project || '', 'Payment type': r.payment_type,
-      'Lounge cost': r.lounge_cost, 'Agent markup': r.agent_markup, 'Client charge': r.client_charge,
+      ...(hasBreakdown ? { 'Lounge cost': r.lounge_cost, 'Agent markup': r.agent_markup } : {}),
+      'Client charge': r.client_charge,
     })));
   }
 
