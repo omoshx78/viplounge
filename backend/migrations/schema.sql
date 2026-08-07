@@ -1,6 +1,17 @@
 -- ============================================================
 -- VIP Lounge Access & Billing System — PostgreSQL schema
 -- ============================================================
+--
+-- IMPORTANT MAINTENANCE NOTE: "CREATE TABLE IF NOT EXISTS" only runs if the table doesn't
+-- exist yet — it is a no-op against a table that was already created by an earlier version of
+-- this file, even if that CREATE TABLE block below has since gained new columns or constraints.
+-- Any time a column or CHECK constraint is added to an EXISTING table (not a brand-new one),
+-- it must ALSO get an explicit "ALTER TABLE ... ADD COLUMN IF NOT EXISTS" (or DROP/ADD
+-- CONSTRAINT) statement placed after that table's CREATE block — see the `users` and `visits`
+-- tables below for the pattern. Skipping this means the live database silently drifts from
+-- what this file describes, and code referencing the new column/value fails at runtime with a
+-- "column does not exist" or "violates check constraint" error, even though the migration
+-- itself reports success.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -82,6 +93,15 @@ CREATE TABLE IF NOT EXISTS users (
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- IMPORTANT: "CREATE TABLE IF NOT EXISTS" above is a no-op if `users` already exists from an
+-- earlier migration run — it does NOT retroactively widen an existing CHECK constraint. If this
+-- table was first created before the 'cashier' role existed, its constraint is still stuck at
+-- the old role list even after this file is updated and re-run. This ALTER brings it current
+-- every time, regardless of when the table was originally created.
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check
+  CHECK (role IN ('lounge_admin','lounge_staff','travel_agent','corporate_admin','cashier'));
 
 -- ---------- Inventory (F&B and VIP supplies stock control) ----------
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -206,6 +226,18 @@ CREATE INDEX IF NOT EXISTS idx_visits_tenant ON visits(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_visits_corporate ON visits(corporate_account_id);
 CREATE INDEX IF NOT EXISTS idx_visits_datetime ON visits(visit_datetime);
 CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status);
+
+-- IMPORTANT: same reasoning as the users table above — if `visits` already existed from an
+-- earlier migration run (e.g. before the image/consent columns were added), the CREATE TABLE
+-- IF NOT EXISTS block above silently skips adding them. "ADD COLUMN IF NOT EXISTS" here brings
+-- an existing table current every time this file runs, regardless of when it was first created.
+-- This is almost certainly why check-in submission was failing: the code was inserting into
+-- columns the live table never actually had.
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS passport_image_data TEXT;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS staff_id_image_data TEXT;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS image_uploaded_at TIMESTAMPTZ;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS consent_accepted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS consent_accepted_at TIMESTAMPTZ;
 
 -- ---------- Invoices ----------
 CREATE TABLE IF NOT EXISTS invoices (
