@@ -70,4 +70,32 @@ router.post('/reject/:visitId', async (req, res) => {
   res.json(rows[0]);
 });
 
+// Records that an individual cash/card passenger's charge was actually collected at the desk —
+// separate from the corporate/agent "payments" ledger, which is for post-paid billing. This is
+// the point-of-sale event itself: who collected it, with what reference, and when. Feeds the
+// cashier's cash-collections report and end-of-shift reconciliation.
+router.post('/collect-payment/:visitId', async (req, res) => {
+  const { reference, notes } = req.body;
+  const visitResult = await queryScoped(req.user, 'SELECT * FROM visits WHERE id = $1', [req.params.visitId]);
+  const visit = visitResult.rows[0];
+  if (!visit) return res.status(404).json({ error: 'Visit not found' });
+  if (visit.status !== 'verified') return res.status(400).json({ error: 'Visit must be verified before payment can be collected' });
+  if (visit.corporate_account_id) return res.status(400).json({ error: 'Corporate visits are billed later, not collected at the desk' });
+  if (visit.payment_collected) return res.status(400).json({ error: 'Payment was already collected for this visit' });
+
+  const { rows } = await queryScoped(
+    req.user,
+    `UPDATE visits SET
+       payment_collected = TRUE,
+       payment_reference = $1,
+       payment_notes = $2,
+       payment_collected_at = now(),
+       payment_collected_by = $3
+     WHERE id = $4
+     RETURNING *`,
+    [reference || null, notes || null, req.user.id, req.params.visitId]
+  );
+  res.json(rows[0]);
+});
+
 export default router;

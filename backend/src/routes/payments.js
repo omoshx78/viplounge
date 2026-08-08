@@ -162,4 +162,86 @@ router.get('/statement', async (req, res) => {
   });
 });
 
+// ---------- Cash & card collections (individual pay-at-desk passengers) ----------
+// Distinct from the corporate/agent payments ledger above — this is the point-of-sale
+// collection event recorded when staff confirms an individual passenger has actually paid.
+// Available to lounge_admin/lounge_staff/cashier — staff who collected it during their shift
+// reasonably want to see their own collections too, not just the cashier.
+router.get('/cash-collections', requireRole('lounge_admin', 'lounge_staff', 'cashier'), async (req, res) => {
+  const { from, to, payment_type } = req.query;
+  const conditions = ['status = \'verified\'', 'payment_collected = TRUE'];
+  const params = [];
+  let i = 1;
+  if (from) { conditions.push(`payment_collected_at >= $${i}`); params.push(from); i++; }
+  if (to) { conditions.push(`payment_collected_at <= $${i}`); params.push(to); i++; }
+  if (payment_type) { conditions.push(`payment_type = $${i}`); params.push(payment_type); i++; }
+
+  const { rows } = await queryScoped(
+    req.user,
+    `SELECT v.id, v.payment_type, v.client_charge, v.payment_reference, v.payment_notes,
+            v.payment_collected_at, v.flight_number, v.direction,
+            p.full_name, p.passport_number, u.full_name AS collected_by_name
+     FROM visits v
+     JOIN passengers p ON p.id = v.passenger_id
+     LEFT JOIN users u ON u.id = v.payment_collected_by
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY v.payment_collected_at DESC`,
+    params
+  );
+  res.json(rows);
+});
+
+// Computes the expected cash total for a period (server-side, from actual verified+collected
+// cash visits) so the cashier isn't trusted to type in a number they could get wrong or fudge —
+// they only enter what they actually counted; the system tells them what it expects.
+router.get('/cash-collections/expected-total', requireRole('lounge_admin', 'cashier'), async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+  const { rows } = await queryScoped(
+    req.user,
+    `SELECT COALESCE(SUM(client_charge), 0) AS total, COUNT(*) AS count
+     FROM visits
+     WHERE status = 'verified' AND payment_collected = TRUE AND payment_type = 'cash'
+       AND payment_collected_at BETWEEN $1 AND $2`,
+    [from, to]
+  );
+  res.json({ expected_total: Number(rows[0].total), count: Number(rows[0].count) });
+});
+
+router.post('/reconciliations', requireRole('lounge_admin', 'cashier'), async (req, res) => {
+  const { period_start, period_end, counted_cash_total, notes } = req.body;
+  if (!period_start || !period_end || counted_cash_total === undefined) {
+    return res.status(400).json({ error: 'period_start, period_end and counted_cash_total are required' });
+  }
+  const expected = await queryScoped(
+    req.user,
+    `SELECT COALESCE(SUM(client_charge), 0) AS total
+     FROM visits
+     WHERE status = 'verified' AND payment_collected = TRUE AND payment_type = 'cash'
+       AND payment_collected_at BETWEEN $1 AND $2`,
+    [period_start, period_end]
+  );
+  const expectedTotal = Number(expected.rows[0].total);
+  const countedTotal = Number(counted_cash_total);
+  const variance = Number((countedTotal - expectedTotal).toFixed(2));
+
+  const { rows } = await queryScoped(
+    req.user,
+    `INSERT INTO cash_reconciliations (period_start, period_end, expected_cash_total, counted_cash_total, variance, notes, reconciled_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [period_start, period_end, expectedTotal, countedTotal, variance, notes || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+});
+
+router.get('/reconciliations', requireRole('lounge_admin', 'lounge_staff', 'cashier'), async (req, res) => {
+  const { rows } = await queryScoped(
+    req.user,
+    `SELECT r.*, u.full_name AS reconciled_by_name
+     FROM cash_reconciliations r LEFT JOIN users u ON u.id = r.reconciled_by
+     ORDER BY r.period_end DESC LIMIT 50`
+  );
+  res.json(rows);
+});
+
 export default router;

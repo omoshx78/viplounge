@@ -1,33 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, downloadCsv, openPrintableDocument } from '../api/client';
+import { api, downloadCsv, openPrintableDocument, printReceipt } from '../api/client';
 
 const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
 
-function printReceipt(visit) {
-  const html = `
-    <div class="doc-header">
-      <div>
-        <div class="eyebrow">Receipt</div>
-        <h1>${LOUNGE_NAME}</h1>
-      </div>
-      <div class="doc-meta">
-        Visit ID: ${visit.id}<br />
-        ${new Date(visit.visit_datetime).toLocaleString()}
-      </div>
-    </div>
-    <table>
-      <tr><th>Passenger</th><td>${visit.full_name}</td></tr>
-      <tr><th>Passport</th><td>${visit.passport_number}</td></tr>
-      <tr><th>Flight</th><td>${visit.flight_number} (${visit.direction})</td></tr>
-      <tr><th>Sponsor</th><td>${visit.corporate_account_name || 'Individual'}</td></tr>
-      <tr><th>Payment method</th><td>${visit.payment_type}</td></tr>
-    </table>
-    <table>
-      <tr class="total-row"><td>Amount charged</td><td>$${Number(visit.client_charge).toFixed(2)}</td></tr>
-    </table>
-  `;
-  openPrintableDocument(`Receipt — ${visit.full_name}`, html);
-}
+// Stable references for default props — a fresh {} or [] literal as a default parameter value
+// is a NEW object every single render, which (since these flow into a useCallback dependency
+// array below) was causing an infinite render loop: new object -> new `load` identity -> effect
+// re-fires -> state update -> re-render -> new object again. That loop is what made the
+// passenger list get stuck on "Loading..." forever, especially wherever fixedFilters wasn't
+// explicitly passed at all (e.g. the main Passengers list).
+const EMPTY_FILTERS = {};
+const EMPTY_OPTIONS = [];
 
 function printInvoice(rows, scopeLabel, hasBreakdown) {
   const total = rows.reduce((sum, r) => sum + Number(r.client_charge), 0);
@@ -68,7 +51,7 @@ function printInvoice(rows, scopeLabel, hasBreakdown) {
 // used across the corporate, travel agent, and lounge admin dashboards. Each dashboard
 // passes fixed filters (e.g. a corporate account locks corporate_account_id) plus whatever
 // extra filter controls make sense for that role.
-export default function VisitsTable({ fixedFilters = {}, showTenantFilter, showCorporateFilter, tenantOptions = [], corporateOptions = [] }) {
+export default function VisitsTable({ fixedFilters = EMPTY_FILTERS, showTenantFilter, showCorporateFilter, tenantOptions = EMPTY_OPTIONS, corporateOptions = EMPTY_OPTIONS }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');

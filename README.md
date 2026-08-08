@@ -73,8 +73,31 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   Fixed a real pre-existing bug along the way: the travel agent dashboard's own "my corporate
   clients" dropdown was silently failing (it called an admin-only endpoint a travel agent never
   had access to) — replaced with a proper RLS-scoped endpoint that actually works for that role.
+- **Fixed a real infinite-loop bug** that was causing the passenger list to freeze on
+  "Loading..." indefinitely: a default prop value (`fixedFilters = {}`) created a brand-new
+  object on every render, which — since it sat inside a `useCallback` dependency array — gave
+  the data-loading function a new identity every render, re-triggering the effect that calls
+  it, in an endless cycle. Fixed with a stable module-level reference instead.
+- **Individual cash/card payment collection is now an explicit, separate step from
+  verification**, not something the system just silently assumes happened. Staff verifies
+  identity first; a follow-up "Confirm payment collected" step asks for a payment
+  reference/notes and records who collected it and when. This feeds directly into the
+  cashier's "Cash & card collections" report (filterable by shift, printable, cash/card
+  totals) — separate from the corporate/agent payments ledger, since individual passengers pay
+  immediately rather than being billed later.
+- **End-of-shift cash reconciliation**: pick a shift period, the system computes the expected
+  cash total from actual verified+collected cash visits (the cashier never types in the
+  expected figure — only what they actually counted), shows the variance, and saves a
+  historical record. Printable, with history retained for audit.
 - Staff verification queue (tablet-friendly), approve/reject, billing calculated on approval
-- Multi-tenant data isolation via Postgres Row-Level Security — not just app-layer filtering
+- **Tenant/corporate data isolation is enforced explicitly in application code** (see
+  `applyRoleScope` in `routes/visits.js` and `buildPaymentScope`/`isAuthorizedForPayer` in
+  `routes/payments.js`), not left to depend on Postgres Row-Level Security alone. RLS is still
+  enabled and its policies are real and in effect, but an earlier attempt to also `FORCE` it
+  against the app's own database connection broke the public check-in flow in a way that
+  resisted diagnosis without live database access — see the comment block in `schema.sql` for
+  the full account. The application-layer scoping is the guarantee you should rely on; treat
+  RLS here as defense-in-depth on top of it, not the sole mechanism.
 - Rate cards: editable, versioned (old visits keep historical rates), scoped globally / per travel
   agent / per corporate account, lounge-admin managed only
 - Direct corporate accounts (no travel agent) supported as a first-class case

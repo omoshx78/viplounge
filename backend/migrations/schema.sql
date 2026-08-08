@@ -151,6 +151,25 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_payer ON payments(payer_type, payer_id, payment_date);
 
+-- ---------- Cash reconciliation (end of shift) ----------
+-- expected_cash_total is computed at submission time from verified visits with
+-- payment_type='cash' AND payment_collected=TRUE within the given period — this table stores
+-- that snapshot (not a live query) so a past reconciliation's numbers don't shift if data
+-- changes later. counted_cash_total is what the cashier actually counted in the till;
+-- variance is the difference, for a clear over/short record.
+CREATE TABLE IF NOT EXISTS cash_reconciliations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  period_start TIMESTAMPTZ NOT NULL,
+  period_end TIMESTAMPTZ NOT NULL,
+  expected_cash_total NUMERIC(10,2) NOT NULL,
+  counted_cash_total NUMERIC(10,2) NOT NULL,
+  variance NUMERIC(10,2) NOT NULL, -- counted - expected; positive = over, negative = short
+  notes TEXT,
+  reconciled_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cash_reconciliations_period ON cash_reconciliations(period_start, period_end);
+
 -- ---------- Password reset tokens ----------
 -- Supports self-service password changes and admin-initiated reset links. The token itself is
 -- never stored in plain text — only its hash — so a database leak alone can't be used to reset
@@ -238,6 +257,16 @@ ALTER TABLE visits ADD COLUMN IF NOT EXISTS staff_id_image_data TEXT;
 ALTER TABLE visits ADD COLUMN IF NOT EXISTS image_uploaded_at TIMESTAMPTZ;
 ALTER TABLE visits ADD COLUMN IF NOT EXISTS consent_accepted BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE visits ADD COLUMN IF NOT EXISTS consent_accepted_at TIMESTAMPTZ;
+
+-- Payment collection for individual cash/card passengers — separate from the corporate/agent
+-- "payments" ledger (which is for post-paid billing). This tracks the actual point-of-sale
+-- collection event: verification calculates what's owed, this records that it was actually
+-- collected, by whom, with what reference, so the cashier can reconcile cash at end of shift.
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS payment_collected BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS payment_reference TEXT;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS payment_notes TEXT;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS payment_collected_at TIMESTAMPTZ;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS payment_collected_by UUID REFERENCES users(id);
 
 -- ---------- Invoices ----------
 CREATE TABLE IF NOT EXISTS invoices (

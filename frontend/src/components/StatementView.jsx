@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, openPrintableDocument } from '../api/client';
 
 const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
+const EMPTY_OPTIONS = [];
 
 function firstOfMonth() {
   const d = new Date();
@@ -65,7 +66,7 @@ function printStatement(statement, payerLabel) {
 // fixedPayer = { payer_type, payer_id, label } for self-service views (agent/corporate own
 // account, no picker needed). Otherwise pass tenantOptions/corporateOptions to let an admin or
 // cashier pick which account's statement to generate.
-export default function StatementView({ fixedPayer, tenantOptions = [], corporateOptions = [] }) {
+export default function StatementView({ fixedPayer, tenantOptions = EMPTY_OPTIONS, corporateOptions = EMPTY_OPTIONS }) {
   const [payerType, setPayerType] = useState(fixedPayer?.payer_type || 'corporate_account');
   const [payerId, setPayerId] = useState(fixedPayer?.payer_id || '');
   const [from, setFrom] = useState(firstOfMonth());

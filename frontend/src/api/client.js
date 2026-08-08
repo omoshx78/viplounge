@@ -60,6 +60,12 @@ export const api = {
   staffQueue: () => request('/api/staff/queue'),
   staffVerify: (visitId) => request(`/api/staff/verify/${visitId}`, { method: 'POST' }),
   staffReject: (visitId) => request(`/api/staff/reject/${visitId}`, { method: 'POST' }),
+  collectPayment: (visitId, payload) => request(`/api/staff/collect-payment/${visitId}`, { method: 'POST', body: payload }),
+
+  listCashCollections: (params) => request('/api/payments/cash-collections', { params }),
+  getExpectedCashTotal: (params) => request('/api/payments/cash-collections/expected-total', { params }),
+  createReconciliation: (payload) => request('/api/payments/reconciliations', { method: 'POST', body: payload }),
+  listReconciliations: () => request('/api/payments/reconciliations'),
 
   listVisits: (params) => request('/api/visits', { params }),
   myCorporateAccounts: () => request('/api/visits/my-corporate-accounts'),
@@ -138,4 +144,35 @@ export function openPrintableDocument(title, bodyHtml) {
     </html>
   `);
   win.document.close();
+}
+
+const LOUNGE_NAME = 'Juba International Airport VIP Lounge';
+
+// Shared receipt format — used both right after staff verifies an individual/cash-or-card
+// passenger (the moment payment is actually collected) and from the passenger list for any
+// already-verified visit. Same document either way.
+export function printReceipt(visit) {
+  const html = `
+    <div class="doc-header">
+      <div>
+        <div class="eyebrow">Receipt</div>
+        <h1>${LOUNGE_NAME}</h1>
+      </div>
+      <div class="doc-meta">
+        Visit ID: ${visit.id}<br />
+        ${new Date(visit.visit_datetime || Date.now()).toLocaleString()}
+      </div>
+    </div>
+    <table>
+      <tr><th>Passenger</th><td>${visit.full_name}</td></tr>
+      <tr><th>Passport</th><td>${visit.passport_number}</td></tr>
+      <tr><th>Flight</th><td>${visit.flight_number} (${visit.direction})</td></tr>
+      <tr><th>Sponsor</th><td>${visit.corporate_account_name || 'Individual'}</td></tr>
+      <tr><th>Payment method</th><td>${visit.payment_type}</td></tr>
+    </table>
+    <table>
+      <tr class="total-row"><td>Amount charged</td><td>$${Number(visit.client_charge).toFixed(2)}</td></tr>
+    </table>
+  `;
+  openPrintableDocument(`Receipt — ${visit.full_name}`, html);
 }
