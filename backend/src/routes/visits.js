@@ -185,4 +185,43 @@ router.get('/my-corporate-accounts', async (req, res) => {
   res.json(rows);
 });
 
+// Full detail for one visit, including the passport/staff-ID photos if still within their
+// 30-day retention window (null after that — see the image-purge job). Deliberately NOT
+// included in the list endpoint above: base64 images are large, and a paginated list of 50
+// rows each carrying two images would bloat that response for no reason. This is fetched only
+// when someone actually opens a passenger's detail.
+//
+// IMPORTANT: this route is registered LAST, after every other specific GET route on this
+// router (/search-suggest, /summary, /my-corporate-accounts) — Express matches routes in
+// declaration order, and a bare "/:id" placed earlier would swallow those specific paths too.
+router.get('/:id', async (req, res) => {
+  const conditions = ['v.id = $1'];
+  const params = [req.params.id];
+  let i = 2;
+  i = applyRoleScope(req.user, conditions, params, i);
+
+  const canSeeBreakdown = ['lounge_admin', 'lounge_staff', 'travel_agent'].includes(req.user.role);
+
+  const { rows } = await queryScoped(
+    req.user,
+    `SELECT v.id, v.direction, v.flight_number, v.visit_datetime, v.status,
+            v.staff_consultant_id, v.department, v.branch_project, v.reference_number,
+            v.payment_type,
+            ${canSeeBreakdown ? 'v.lounge_cost, v.agent_markup,' : 'NULL AS lounge_cost, NULL AS agent_markup,'}
+            v.client_charge, v.passport_image_data, v.staff_id_image_data, v.image_uploaded_at,
+            v.payment_collected, v.payment_reference, v.payment_notes, v.payment_collected_at,
+            p.full_name, p.passport_number, p.nationality, p.phone, p.email,
+            ca.name AS corporate_account_name, t.name AS tenant_name
+     FROM visits v
+     JOIN passengers p ON p.id = v.passenger_id
+     LEFT JOIN corporate_accounts ca ON ca.id = v.corporate_account_id
+     LEFT JOIN tenants t ON t.id = v.tenant_id
+     WHERE ${conditions.join(' AND ')}`,
+    params
+  );
+
+  if (!rows[0]) return res.status(404).json({ error: 'Visit not found, or not accessible to you' });
+  res.json(rows[0]);
+});
+
 export default router;

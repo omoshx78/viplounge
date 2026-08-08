@@ -89,6 +89,12 @@ reporting dashboards for lounge admin, travel agent, and corporate roles.
   cash total from actual verified+collected cash visits (the cashier never types in the
   expected figure — only what they actually counted), shows the variance, and saves a
   historical record. Printable, with history retained for audit.
+- **Passenger detail on click**: rows in the passenger list highlight on hover and open a full
+  detail view on click — including the passport/staff-ID photos, if they're still within their
+  30-day retention window (shows a clear "no photo on file" message once purged or if none was
+  uploaded). Images are deliberately NOT included in the main list response (they're fetched
+  only when a row is actually opened) so the list itself stays fast regardless of how many
+  photos are on file.
 - Staff verification queue (tablet-friendly), approve/reject, billing calculated on approval
 - **Tenant/corporate data isolation is enforced explicitly in application code** (see
   `applyRoleScope` in `routes/visits.js` and `buildPaymentScope`/`isAuthorizedForPayer` in

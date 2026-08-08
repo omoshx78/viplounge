@@ -68,6 +68,7 @@ export const api = {
   listReconciliations: () => request('/api/payments/reconciliations'),
 
   listVisits: (params) => request('/api/visits', { params }),
+  getVisitDetail: (id) => request(`/api/visits/${id}`),
   myCorporateAccounts: () => request('/api/visits/my-corporate-accounts'),
   searchSuggest: (q) => request('/api/visits/search-suggest', { params: { q } }),
   summary: (params) => request('/api/visits/summary', { params }),

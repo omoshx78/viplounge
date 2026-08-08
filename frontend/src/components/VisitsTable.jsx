@@ -47,7 +47,123 @@ function printInvoice(rows, scopeLabel, hasBreakdown) {
   openPrintableDocument(`Invoice — ${scopeLabel}`, html);
 }
 
-// A visits list with type-ahead search, sortable columns, filters, and download/print —
+// Opens on clicking a row — fetches the full record lazily (including passport/staff-ID
+// photos, if still within their 30-day retention window) rather than loading images for every
+// row in the list up front.
+function PassengerDetailModal({ visitId, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    api.getVisitDetail(visitId)
+      .then(setDetail)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [visitId]);
+
+  const hasBreakdown = detail && detail.lounge_cost !== null && detail.lounge_cost !== undefined;
+
+  return (
+    <div className="modal-overlay no-print" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        {loading && <p>Loading passenger details...</p>}
+        {error && <p style={{ color: 'var(--danger)' }}>Couldn't load details: {error}</p>}
+
+        {detail && (
+          <>
+            <h2 style={{ marginTop: 0 }}>{detail.full_name}</h2>
+            <p style={{ color: 'var(--text-muted)', marginTop: -8, fontSize: 13 }}>
+              {detail.passport_number} · {detail.nationality || 'Nationality not recorded'}
+            </p>
+
+            <div className="grid grid-2" style={{ marginBottom: 16 }}>
+              <div>
+                <div className="inventory-category-label">Visit</div>
+                <p style={{ margin: '2px 0', fontSize: 14 }}>Flight {detail.flight_number} · {detail.direction}</p>
+                <p style={{ margin: '2px 0', fontSize: 14 }}>{new Date(detail.visit_datetime).toLocaleString()}</p>
+                <p style={{ margin: '2px 0', fontSize: 14 }}>
+                  <span className={`badge ${detail.status === 'verified' ? 'badge-success' : detail.status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>{detail.status}</span>
+                </p>
+              </div>
+              <div>
+                <div className="inventory-category-label">{detail.corporate_account_name ? 'Corporate' : 'Individual'}</div>
+                {detail.corporate_account_name ? (
+                  <>
+                    <p style={{ margin: '2px 0', fontSize: 14 }}>{detail.corporate_account_name}{detail.tenant_name ? ` (via ${detail.tenant_name})` : ''}</p>
+                    <p style={{ margin: '2px 0', fontSize: 14 }}>ID: {detail.staff_consultant_id || '—'} · Dept: {detail.department || '—'}</p>
+                    <p style={{ margin: '2px 0', fontSize: 14 }}>Branch/Project: {detail.branch_project || '—'} · Ref: {detail.reference_number || '—'}</p>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ margin: '2px 0', fontSize: 14 }}>Payment: {detail.payment_type}</p>
+                    <p style={{ margin: '2px 0', fontSize: 14 }}>
+                      {detail.payment_collected ? `Collected ${new Date(detail.payment_collected_at).toLocaleString()}` : 'Not yet collected'}
+                    </p>
+                    {detail.payment_reference && <p style={{ margin: '2px 0', fontSize: 14 }}>Ref: {detail.payment_reference}</p>}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-3" style={{ marginBottom: 16 }}>
+              {hasBreakdown && (
+                <div className="stat-card">
+                  <div className="stat-value">${Number(detail.lounge_cost).toFixed(2)}</div>
+                  <div className="stat-label">Lounge cost</div>
+                </div>
+              )}
+              {hasBreakdown && (
+                <div className="stat-card">
+                  <div className="stat-value">${Number(detail.agent_markup).toFixed(2)}</div>
+                  <div className="stat-label">Agent markup</div>
+                </div>
+              )}
+              <div className="stat-card">
+                <div className="stat-value">${Number(detail.client_charge).toFixed(2)}</div>
+                <div className="stat-label">Client charge</div>
+              </div>
+            </div>
+
+            <div className="inventory-category-label">Documents on file</div>
+            {(detail.passport_image_data || detail.staff_id_image_data) ? (
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                {detail.passport_image_data && (
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Passport / ID photo</div>
+                    <img src={detail.passport_image_data} alt="Passport" style={{ maxHeight: 220, borderRadius: 8, border: '1px solid var(--border)' }} />
+                  </div>
+                )}
+                {detail.staff_id_image_data && (
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Staff ID photo</div>
+                    <img src={detail.staff_id_image_data} alt="Staff ID" style={{ maxHeight: 220, borderRadius: 8, border: '1px solid var(--border)' }} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                No photo on file — either none was uploaded at check-in, or it has passed its 30-day retention window and was automatically deleted.
+              </p>
+            )}
+
+            {detail.status === 'verified' && (
+              <div style={{ marginTop: 16 }}>
+                <button onClick={() => printReceipt(detail)}>Print receipt</button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 // used across the corporate, travel agent, and lounge admin dashboards. Each dashboard
 // passes fixed filters (e.g. a corporate account locks corporate_account_id) plus whatever
 // extra filter controls make sense for that role.
@@ -65,6 +181,7 @@ export default function VisitsTable({ fixedFilters = EMPTY_FILTERS, showTenantFi
   const [corporateAccountId, setCorporateAccountId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [selectedVisitId, setSelectedVisitId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -199,7 +316,7 @@ export default function VisitsTable({ fixedFilters = EMPTY_FILTERS, showTenantFi
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} className="clickable-row" onClick={() => setSelectedVisitId(r.id)}>
                 <td>{r.full_name}</td>
                 <td>{r.passport_number}</td>
                 <td>{new Date(r.visit_datetime).toLocaleString()}</td>
@@ -215,7 +332,7 @@ export default function VisitsTable({ fixedFilters = EMPTY_FILTERS, showTenantFi
                 <td>${Number(r.client_charge).toFixed(2)}</td>
                 <td className="no-print">
                   {r.status === 'verified' && (
-                    <button className="secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => printReceipt(r)}>Print</button>
+                    <button className="secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={(e) => { e.stopPropagation(); printReceipt(r); }}>Print</button>
                   )}
                 </td>
               </tr>
@@ -223,6 +340,10 @@ export default function VisitsTable({ fixedFilters = EMPTY_FILTERS, showTenantFi
             {rows.length === 0 && <tr><td colSpan={10}>No passengers match these filters.</td></tr>}
           </tbody>
         </table>
+      )}
+
+      {selectedVisitId && (
+        <PassengerDetailModal visitId={selectedVisitId} onClose={() => setSelectedVisitId(null)} />
       )}
     </div>
   );
